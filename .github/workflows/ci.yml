@@ -1,0 +1,36 @@
+# ============================================================
+# CI เบื้องต้น (T01) — ตรวจสุขภาพโค้ด backend ทุกครั้งที่ push / เปิด PR
+# ตอนนี้: ติดตั้ง dependency + ตรวจว่า import โค้ดได้ (compile ผ่าน)
+# ภายหลังค่อยเพิ่ม: lint (ruff), test (pytest), frontend build
+# ============================================================
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile check (import ได้ไหม)
+        run: python -m compileall app
+
+      - name: Import smoke test
+        run: python -c "import app.main; import app.models; print('backend imports OK')"

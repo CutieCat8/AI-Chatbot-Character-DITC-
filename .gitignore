@@ -1,0 +1,49 @@
+# ---- Python / Backend ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Environment / Secrets ----
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials*.json
+service-account*.json
+
+# ---- Node / Frontend ----
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ---- Docker / DB ----
+postgres-data/
+pgdata/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# ---- Misc ----
+coverage/
+.coverage
+htmlcov/
+*.local

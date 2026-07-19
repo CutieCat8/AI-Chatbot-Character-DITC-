@@ -1,0 +1,52 @@
+# ============================================================
+# DITC CAT — Docker Compose (Development)
+# รันทั้งระบบด้วยคำสั่งเดียว:  docker compose up --build
+#   - db      : PostgreSQL 16 + pgvector (ฐานข้อมูล + vector search)
+#   - backend : FastAPI (REST API + RAG)
+# Frontend (Next.js) จะเพิ่ม service ทีหลังตอน Sprint 3
+# ============================================================
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: ditc_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # สคริปต์ใน db/init จะรันอัตโนมัติ "ครั้งแรก" ที่สร้าง container (เปิด extension vector)
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ditc_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # ใน docker network ให้ backend คุย db ผ่าน service name "db"
+      POSTGRES_HOST: db
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # mount โค้ดเข้าไปเพื่อ hot-reload ตอน dev
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres-data:
