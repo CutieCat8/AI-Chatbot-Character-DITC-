@@ -35,6 +35,10 @@ yarn-error.log*
 postgres-data/
 pgdata/
 
+# ---- Scraper output (T03) — ไฟล์ dump ข้อมูล scrape ไม่ต้องขึ้น git ----
+backend/data/
+*.scrape.json
+
 # ---- Editor / OS ----
 .vscode/
 .idea/

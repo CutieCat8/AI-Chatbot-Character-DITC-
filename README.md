@@ -40,7 +40,8 @@ AI-Chatbot-Character-DITC-/
 │   │   ├── main.py           # จุดเริ่ม API (/ , /health)
 │   │   ├── config.py         # โหลด setting จาก .env
 │   │   ├── database.py       # เชื่อม DB (engine, session, Base)
-│   │   └── models/           # ตารางฐานข้อมูล (T02)
+│   │   ├── models/           # ตารางฐานข้อมูล (T02)
+│   │   └── scraper/          # ดึงเนื้อหาเว็บ DITC/CAMT เข้า KB (T03)
 │   └── alembic/              # migration ฐานข้อมูล
 ├── frontend-character/       # หน้าจอแมว (Sprint 3)
 └── frontend-admin/           # เว็บแอดมิน + แดชบอร์ด (Sprint 4)
@@ -102,12 +103,42 @@ uvicorn app.main:app --reload
 
 ---
 
+## Web Scraper (T03)
+
+ดึงเนื้อหาเข้า Knowledge Base จาก **2 แหล่ง** (Scope 3.1) — แต่ละเว็บสถาปัตยกรรมต่างกัน จึงใช้คนละวิธี:
+
+| แหล่ง | สภาพเว็บ | วิธีดึง |
+|---|---|---|
+| **camt.cmu.ac.th** | server-rendered (WordPress) | **HTML scraper** (crawl ตามลิงก์ในโดเมน) — ใช้ `www.` เพราะ apex domain ใบ SSL ไม่ตรงชื่อ |
+| **ditc.camt.cmu.ac.th** | Next.js SPA (เนื้อหาโหลดด้วย JS) | **Strapi API client** — ดึง JSON ตรงจาก CMS (`infos`=ข่าว, `projects`, `facilities`) |
+
+> ⚠️ Strapi endpoint ของ DITC เป็น **internal API** (สังเกตจาก network request ไม่ใช่ API ทางการ)
+> โครงสร้างอาจเปลี่ยนได้ — โค้ดจึง handle error แยกต่อ collection (พังทีละอันได้ ไม่ล้มทั้งระบบ)
+
+```bash
+cd backend
+
+# ดึงทั้งสองแหล่ง → dump เป็น JSON (ทดสอบได้แม้ยังไม่มี DB)
+python -m app.scraper.run --json data/scrape.json
+
+# ดึง → dump JSON + บันทึกลงตาราง documents พร้อมกัน (ต้องมี DB + รัน migration แล้ว)
+python -m app.scraper.run --json data/scrape.json --to-db
+
+# ดึงเฉพาะแหล่งเดียว
+python -m app.scraper.run --only strapi --json data/ditc.json   # เฉพาะ DITC
+python -m app.scraper.run --only html   --json data/camt.json   # เฉพาะ CAMT
+```
+
+การ upsert ใช้ `content_hash` (Scope 3.2): url ใหม่ = เพิ่ม, hash เปลี่ยน = อัปเดต+ล้าง chunk เดิม, hash เท่าเดิม = ข้าม
+
+---
+
 ## แผนงาน (5 Sprint / 45 tasks / 40[+5] วัน)
 
 | Sprint | ธีม | สถานะ |
 |---|---|---|
-| 1 | Setup + Foundation | 🔨 กำลังทำ (T01 ✅ T02 ✅) |
-| 2 | Core RAG + Voice Pipeline | ⏳ |
-| 3 | Character UI + Lip-sync | ⏳ |
-| 4 | Admin Dashboard + Feedback | ⏳ |
-| 5 | Integration, Testing & Delivery | ⏳ |
+| 1 | Setup + Foundation | 🔨 กำลังทำ (T01 Done \| T02 Done \| T03 Done) |
+| 2 | Core RAG + Voice Pipeline | Pending |
+| 3 | Character UI + Lip-sync | Pending |
+| 4 | Admin Dashboard + Feedback | Pending |
+| 5 | Integration, Testing & Delivery | Pending |

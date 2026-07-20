@@ -47,8 +47,16 @@ class Settings(BaseSettings):
     TTS_PROVIDER: str = "google"
 
     # ---- Scraper (T03) ----
-    SCRAPE_SOURCES: str = "https://ditc.camt.cmu.ac.th,https://camt.cmu.ac.th"
+    # เว็บ CAMT เป็น server-rendered (WordPress) → ดึงด้วย HTML scraper ได้ตรง ๆ
+    # ใช้ www. เพราะ apex domain (camt.cmu.ac.th) ใบรับรอง SSL ไม่ตรงชื่อโฮสต์
+    SCRAPE_HTML_SEEDS: str = "https://www.camt.cmu.ac.th"
     SCRAPE_INTERVAL_HOURS: int = 24
+
+    # เว็บ DITC เป็น Next.js SPA (เนื้อหาโหลดด้วย JS) → ดึงตรงจาก Strapi CMS แทน
+    # หมายเหตุ: นี่เป็น "internal API" ของเว็บ DITC (สังเกตได้จาก network request ตอนโหลดหน้า)
+    # ไม่ใช่ public API ที่ประกาศเป็นทางการ — โครงสร้าง/URL อาจเปลี่ยนได้ ต้อง handle error ให้ดี
+    DITC_STRAPI_BASE: str = "https://thankful-nurture-c4e39b7226.strapiapp.com"
+    DITC_SITE_BASE: str = "https://ditc.camt.cmu.ac.th"
 
     model_config = SettingsConfigDict(
         env_file=".env",
