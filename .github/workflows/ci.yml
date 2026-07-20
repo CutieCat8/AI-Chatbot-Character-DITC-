@@ -33,4 +33,4 @@ jobs:
         run: python -m compileall app
 
       - name: Import smoke test
-        run: python -c "import app.main; import app.models; import app.scraper.run; print('backend imports OK')"
+        run: python -c "import app.main; import app.models; import app.scraper.run; import app.rag.verify; print('backend imports OK')"

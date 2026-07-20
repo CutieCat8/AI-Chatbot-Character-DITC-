@@ -41,7 +41,8 @@ AI-Chatbot-Character-DITC-/
 │   │   ├── config.py         # โหลด setting จาก .env
 │   │   ├── database.py       # เชื่อม DB (engine, session, Base)
 │   │   ├── models/           # ตารางฐานข้อมูล (T02)
-│   │   └── scraper/          # ดึงเนื้อหาเว็บ DITC/CAMT เข้า KB (T03)
+│   │   ├── scraper/          # ดึงเนื้อหาเว็บ DITC/CAMT เข้า KB (T03)
+│   │   └── rag/              # embedding + vector search (pgvector) (T04)
 │   └── alembic/              # migration ฐานข้อมูล
 ├── frontend-character/       # หน้าจอแมว (Sprint 3)
 └── frontend-admin/           # เว็บแอดมิน + แดชบอร์ด (Sprint 4)
@@ -112,7 +113,7 @@ uvicorn app.main:app --reload
 | **camt.cmu.ac.th** | server-rendered (WordPress) | **HTML scraper** (crawl ตามลิงก์ในโดเมน) — ใช้ `www.` เพราะ apex domain ใบ SSL ไม่ตรงชื่อ |
 | **ditc.camt.cmu.ac.th** | Next.js SPA (เนื้อหาโหลดด้วย JS) | **Strapi API client** — ดึง JSON ตรงจาก CMS (`infos`=ข่าว, `projects`, `facilities`) |
 
-> ⚠️ Strapi endpoint ของ DITC เป็น **internal API** (สังเกตจาก network request ไม่ใช่ API ทางการ)
+> Strapi endpoint ของ DITC เป็น **internal API** (สังเกตจาก network request ไม่ใช่ API ทางการ)
 > โครงสร้างอาจเปลี่ยนได้ — โค้ดจึง handle error แยกต่อ collection (พังทีละอันได้ ไม่ล้มทั้งระบบ)
 
 ```bash
@@ -133,11 +134,43 @@ python -m app.scraper.run --only html   --json data/camt.json   # เฉพา�
 
 ---
 
+## Vector Database — embedding + retrieval (T04)
+
+วาง "ฐาน" ของ semantic search: `documents` (เนื้อหาดิบ) → **chunk** → **embed** → `document_chunks` (เวกเตอร์)
+แล้วค้นด้วย **cosine distance** ของ pgvector (RAG pipeline เต็มตอนตอบคำถาม = T10 ใน Sprint 2)
+
+| ไฟล์ | หน้าที่ |
+|---|---|
+| `rag/embedding.py` | แปลงข้อความ→เวกเตอร์ สลับ provider ได้: `openai` (จริง) \| `fake` (ทดสอบ ไม่ต้องมี key) |
+| `rag/chunking.py` | ตัดเอกสารเป็นชิ้น (char-window + overlap รองรับภาษาไทยที่ไม่มีเว้นวรรค) |
+| `rag/indexer.py` | chunk+embed เอกสาร → เก็บ `document_chunks` (ข้ามอันที่ index แล้ว) |
+| `rag/retrieval.py` | ค้น chunk ใกล้เคียงคำถามด้วย pgvector (`<=>`, HNSW index จาก T02) |
+| `rag/verify.py` | สคริปต์พิสูจน์ครบวงจร (ดีลิเวอรี T04) |
+
+```bash
+# หลัง docker compose up + alembic upgrade head แล้ว:
+cd backend
+
+# พิสูจน์ทั้งระบบ (เช็ก pgvector → index → ค้นตัวอย่าง)
+python -m app.rag.verify
+
+# ยังไม่ได้ scrape จริง? ใส่ข้อมูลตัวอย่างก่อนได้
+python -m app.rag.verify --seed-demo
+
+# ลองค้นคำถามเอง
+python -m app.rag.verify --query "ค่าเทอมหลักสูตร SE เท่าไหร่"
+```
+
+> ทดสอบ "ท่อ" โดยไม่ต้องมี OpenAI key ได้ด้วย `EMBEDDING_PROVIDER=fake` ใน `.env`
+> (fake = เวกเตอร์จำลอง พิสูจน์ว่า pipeline ทำงาน แต่ไม่มีความหมายเชิงภาษา — วัดคุณภาพจริงต้องใช้ `openai`)
+
+---
+
 ## แผนงาน (5 Sprint / 45 tasks / 40[+5] วัน)
 
 | Sprint | ธีม | สถานะ |
 |---|---|---|
-| 1 | Setup + Foundation | 🔨 กำลังทำ (T01 Done \| T02 Done \| T03 Done) |
+| 1 | Setup + Foundation |  WIP (T01 Done \| T02 Done \| T03 Done \| T04 Done) |
 | 2 | Core RAG + Voice Pipeline | Pending |
 | 3 | Character UI + Lip-sync | Pending |
 | 4 | Admin Dashboard + Feedback | Pending |
