@@ -89,6 +89,34 @@ def index_documents(
     return stats
 
 
+def index_one_document(db: Session, document: Document, embedder: Embedder | None = None) -> int:
+    """
+    chunk + embed เอกสารเดียว ทันที — ใช้ตอนแอดมินเพิ่ม/แก้เอกสารเองจากแดชบอร์ด (Scope 6.2)
+    จะไม่ต้องรอ index_documents() รอบถัดไป (ตอน Sync Now) ถึงจะค้นเจอ
+    ลบ chunk เดิมทิ้งก่อนเสมอ (ไม่เช็คว่ามีอยู่แล้วหรือไม่ ต่างจาก index_documents)
+    คืนจำนวน chunk ที่สร้าง
+    """
+    embedder = embedder or get_embedder()
+    document.chunks.clear()  # เนื้อหาอาจเปลี่ยน chunk เดิมใช้ต่อไม่ได้
+
+    chunks = chunk_text(document.content)
+    if not chunks:
+        return 0
+
+    vectors = embedder.embed([c.content for c in chunks])
+    for chunk, vector in zip(chunks, vectors):
+        db.add(
+            DocumentChunk(
+                document_id=document.id,
+                chunk_index=chunk.index,
+                content=chunk.content,
+                token_count=chunk.token_count,
+                embedding=vector,
+            )
+        )
+    return len(chunks)
+
+
 def count_status(db: Session) -> tuple[int, int]:
     """คืน (จำนวน document, จำนวน chunk) ไว้แสดงสถานะ"""
     docs = db.scalar(select(func.count()).select_from(Document)) or 0

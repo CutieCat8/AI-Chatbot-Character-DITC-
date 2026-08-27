@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     APP_DEBUG: bool = True
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://localhost:5173"
 
     # ---- Auth (Sprint 4) ----
     JWT_SECRET: str = "change-me"
@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     LLM_MODEL: str = "claude-sonnet-5"
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_MODEL: str = "deepseek-v4-pro"
 
     # ---- Embedding (RAG) ----
     EMBEDDING_PROVIDER: str = "openai"

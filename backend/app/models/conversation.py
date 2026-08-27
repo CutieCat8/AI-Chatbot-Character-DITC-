@@ -30,6 +30,8 @@ class ConversationSession(Base, TimestampMixin):
     topic: Mapped[str | None] = mapped_column(String(255))
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)))  # แท็กสั้น ๆ
 
+
+
     message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     status: Mapped[SessionStatus] = mapped_column(
