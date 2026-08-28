@@ -1,7 +1,7 @@
 """
 schemas/auth.py — request/response ของการล็อกอินแอดมิน
 """
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import AdminRole
 
@@ -9,6 +9,12 @@ from app.models.enums import AdminRole
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str = Field(min_length=8)
+    display_name: str | None = None
 
 
 class AdminOut(BaseModel):

@@ -46,6 +46,19 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return res.json() as Promise<LoginResponse>;
 }
 
+export async function register(email: string, password: string, displayName?: string): Promise<LoginResponse> {
+  const res = await fetch(new URL("/api/auth/register", API_BASE), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ email, password, display_name: displayName || null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? `API ${res.status}`);
+  }
+  return res.json() as Promise<LoginResponse>;
+}
+
 export async function getMe(): Promise<AdminOut> {
   const res = await fetch(new URL("/api/auth/me", API_BASE), {
     headers: { Accept: "application/json", ...authHeaders() },

@@ -5,10 +5,11 @@ import { Cat } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { login, setToken } from "../../lib/api";
+import { register, setToken } from "../../lib/api";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const navigate = useNavigate();
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -19,11 +20,11 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await login(email, password);
+      const res = await register(email, password, displayName);
       setToken(res.access_token);
       navigate("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "เข้าสู่ระบบไม่สำเร็จ");
+      setError(err instanceof Error ? err.message : "สมัครสมาชิกไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
@@ -36,11 +37,22 @@ export default function LoginPage() {
           <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
             <Cat size={20} className="text-white" />
           </div>
-          <h1 className="text-lg font-semibold text-gray-900">เข้าสู่ระบบแอดมิน</h1>
+          <h1 className="text-lg font-semibold text-gray-900">สมัครบัญชีแอดมิน</h1>
           <p className="text-sm text-gray-400">DITC CAT — แดชบอร์ดจัดการระบบ</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-xl p-6 flex flex-col gap-4 shadow-sm">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="displayName">ชื่อที่แสดง</Label>
+            <Input
+              id="displayName"
+              type="text"
+              autoComplete="name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="ทีมงาน"
+            />
+          </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="email">อีเมล</Label>
             <Input
@@ -58,24 +70,25 @@ export default function LoginPage() {
             <Input
               id="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               required
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="อย่างน้อย 8 ตัวอักษร"
             />
           </div>
 
           {error && <p className="text-sm text-red-500">{error}</p>}
 
           <Button type="submit" disabled={loading} className="w-full mt-2">
-            {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+            {loading ? "กำลังสมัคร..." : "สมัครสมาชิก"}
           </Button>
 
           <p className="text-center text-xs text-gray-400">
-            ยังไม่มีบัญชี?{" "}
-            <Link to="/register" className="text-gray-700 hover:underline font-medium">
-              สมัครสมาชิก
+            มีบัญชีอยู่แล้ว?{" "}
+            <Link to="/login" className="text-gray-700 hover:underline font-medium">
+              เข้าสู่ระบบ
             </Link>
           </p>
         </form>

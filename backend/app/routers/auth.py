@@ -1,7 +1,11 @@
 """
-routers/auth.py — ล็อกอินแอดมิน (Scope 6.1, T27)
+routers/auth.py — สมัคร/ล็อกอินแอดมิน (Scope 6.1, T27)
 
-ออก JWT ตอน login แล้วให้ frontend แนบ `Authorization: Bearer <token>` ต่อ request อื่น
+หมายเหตุ: /register เปิดให้สมัครเองได้เลยไม่มีการอนุมัติ — ใช้ได้ตอนนี้เพราะเป็น
+แดชบอร์ด demo ภายใน (เข้าถึงตรงได้จากคนในทีมเท่านั้น) ต้องปิด/ใส่ invite code
+ก่อน deploy ให้คนนอกเข้าถึงได้จริง
+
+ออก JWT ตอน login/register แล้วให้ frontend แนบ `Authorization: Bearer <token>` ต่อ request อื่น
 get_current_admin ไว้เป็น dependency ให้ router อื่น (documents/chat จัดการ) มา Depends() คุ้มกันได้ทีหลัง
 """
 from datetime import datetime, timezone
@@ -11,13 +15,32 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.security import create_access_token, decode_access_token, verify_password
+from app.auth.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.database import get_db
 from app.models.admin import AdminUser
-from app.schemas.auth import AdminOut, LoginRequest, TokenResponse
+from app.schemas.auth import AdminOut, LoginRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    existing = db.scalar(select(AdminUser).where(AdminUser.email == payload.email))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="อีเมลนี้ถูกใช้สมัครไปแล้ว")
+
+    admin = AdminUser(
+        email=payload.email,
+        hashed_password=hash_password(payload.password),
+        display_name=payload.display_name,
+    )
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+
+    token = create_access_token(subject=str(admin.id))
+    return TokenResponse(access_token=token, admin=AdminOut.model_validate(admin))
 
 
 @router.post("/login", response_model=TokenResponse)
