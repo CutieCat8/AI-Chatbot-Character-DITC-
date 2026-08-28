@@ -45,8 +45,20 @@ npm run dev
 
 ## เปิดเบราว์เซอร์
 
-- หน้าแดชบอร์ด: **http://localhost:5173**
-- หน้าแชท demo: **http://localhost:5173/chat**
+- หน้าแลนดิ้ง: **http://localhost:5173**
+- หน้าล็อกอินแอดมิน: **http://localhost:5173/login**
+- แดชบอร์ด (ต้องล็อกอินก่อน): **http://localhost:5173/dashboard**
+- หน้าแชท demo (ต้องล็อกอินก่อน): **http://localhost:5173/dashboard/chat**
+
+### สร้างบัญชีแอดมินสำหรับล็อกอิน (ทำครั้งแรกครั้งเดียว)
+
+ยังไม่มีบัญชีแอดมินในระบบ ต้องสร้างเองก่อนถึงจะล็อกอินได้:
+
+```bash
+docker compose exec backend python -m app.scripts.create_admin admin@ditc.dev รหัสผ่านที่ตั้งเอง
+```
+
+(รันซ้ำด้วยอีเมลเดิม = รีเซ็ตรหัสผ่านให้)
 
 ## เช็คว่าทุกอย่างพร้อมก่อนพรีเซนต์จริง
 

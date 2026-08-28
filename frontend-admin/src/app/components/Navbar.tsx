@@ -1,12 +1,20 @@
-import { Bell, Cat } from "lucide-react";
-import { NavLink } from "react-router";
+import { Bell, Cat, LogOut } from "lucide-react";
+import { NavLink, useNavigate } from "react-router";
+import { clearToken } from "../../lib/api";
 
 const NAV_ITEMS = [
-  { label: "Knowledge Base", to: "/" },
-  { label: "Chat Demo", to: "/chat" },
+  { label: "Knowledge Base", to: "/dashboard" },
+  { label: "Chat Demo", to: "/dashboard/chat" },
 ];
 
 export function Navbar() {
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    clearToken();
+    navigate("/login");
+  }
+
   return (
     <nav className="h-12 bg-white border-b border-gray-100 flex items-center px-8 gap-8 sticky top-0 z-50 shrink-0">
       <div className="flex items-center gap-2 shrink-0">
@@ -23,7 +31,7 @@ export function Navbar() {
           <NavLink
             key={item.to}
             to={item.to}
-            end={item.to === "/"}
+            end={item.to === "/dashboard"}
             className={({ isActive }) =>
               `px-3.5 py-1 rounded-md transition-colors ${
                 isActive ? "text-gray-900" : "text-gray-400 hover:text-gray-700"
@@ -42,14 +50,14 @@ export function Navbar() {
           <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-red-400 rounded-full" />
         </button>
         <div className="w-px h-4 bg-gray-200" />
-        <div className="flex items-center gap-2 cursor-pointer group">
-          <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
-            <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#555" }}>TK</span>
-          </div>
-          <span className="text-gray-600 group-hover:text-gray-900 transition-colors" style={{ fontSize: "0.8rem" }}>
-            ทีมงาน
-          </span>
-        </div>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-1.5 text-gray-400 hover:text-gray-700 transition-colors"
+          style={{ fontSize: "0.8rem" }}
+        >
+          <LogOut size={13} />
+          ออกจากระบบ
+        </button>
       </div>
     </nav>
   );

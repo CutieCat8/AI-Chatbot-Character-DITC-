@@ -1,4 +1,60 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const TOKEN_KEY = "ditc_admin_token";
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export type AdminRole = "admin" | "editor";
+
+export interface AdminOut {
+  id: number;
+  email: string;
+  display_name: string | null;
+  role: AdminRole;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  admin: AdminOut;
+}
+
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  const res = await fetch(new URL("/api/auth/login", API_BASE), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? `API ${res.status}`);
+  }
+  return res.json() as Promise<LoginResponse>;
+}
+
+export async function getMe(): Promise<AdminOut> {
+  const res = await fetch(new URL("/api/auth/me", API_BASE), {
+    headers: { Accept: "application/json", ...authHeaders() },
+  });
+  if (!res.ok) {
+    throw new Error(`API ${res.status}`);
+  }
+  return res.json() as Promise<AdminOut>;
+}
 
 export type SourceSite = "ditc" | "camt" | "manual";
 
@@ -94,7 +150,7 @@ async function apiGet<T>(path: string, params: Record<string, unknown> = {}): Pr
     }
   }
 
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const res = await fetch(url, { headers: { Accept: "application/json", ...authHeaders() } });
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   }
@@ -104,7 +160,7 @@ async function apiGet<T>(path: string, params: Record<string, unknown> = {}): Pr
 async function apiPost<T>(path: string): Promise<T> {
   const res = await fetch(new URL(path, API_BASE), {
     method: "POST",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...authHeaders() },
   });
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
@@ -115,7 +171,7 @@ async function apiPost<T>(path: string): Promise<T> {
 async function apiJson<T>(path: string, method: "POST" | "PATCH", body: unknown): Promise<T> {
   const res = await fetch(new URL(path, API_BASE), {
     method,
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -125,7 +181,7 @@ async function apiJson<T>(path: string, method: "POST" | "PATCH", body: unknown)
 }
 
 async function apiDelete(path: string): Promise<void> {
-  const res = await fetch(new URL(path, API_BASE), { method: "DELETE" });
+  const res = await fetch(new URL(path, API_BASE), { method: "DELETE", headers: { ...authHeaders() } });
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   }

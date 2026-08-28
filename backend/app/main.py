@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
-from app.routers import chat, documents
+from app.routers import auth, chat, documents
 
 
 @asynccontextmanager
@@ -40,6 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 

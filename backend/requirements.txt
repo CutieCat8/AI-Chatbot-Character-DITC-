@@ -10,9 +10,9 @@ psycopg[binary]==3.2.3
 pgvector==0.3.6
 alembic==1.14.0
 
-# ---- Auth (ใช้เต็มตอน Sprint 4) ----
+# ---- Auth (Sprint 4, T27) ----
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+bcrypt==5.0.0
 
 # ---- Scraper (T03) ----
 beautifulsoup4==4.12.3   # แยกเนื้อหาออกจาก HTML
