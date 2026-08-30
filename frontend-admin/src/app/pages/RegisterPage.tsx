@@ -1,17 +1,20 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { Cat } from "lucide-react";
+import { Cat, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { register, setToken } from "../../lib/api";
+import { AuthShowcase } from "../components/AuthShowcase";
+import Aurora from "../components/Aurora/Aurora";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -24,74 +27,123 @@ export default function RegisterPage() {
       setToken(res.access_token);
       navigate("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "สมัครสมาชิกไม่สำเร็จ");
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center gap-2 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
-            <Cat size={20} className="text-white" />
+    <div
+      className="relative min-h-screen flex items-center justify-center bg-gray-950 px-4 py-10 overflow-hidden"
+      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+    >
+      <div className="absolute inset-0">
+        <Aurora colorStops={["#8167ff", "#B497CF", "#261c4f"]} blend={0.5} amplitude={1.0} speed={0.5} />
+      </div>
+
+      <div className="relative z-10 w-full max-w-4xl min-h-[640px] bg-[#111214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden grid md:grid-cols-2">
+        {/* Left: sign-up form */}
+        <div className="flex flex-col justify-between p-10 md:p-14 bg-[#161719]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-md bg-white flex items-center justify-center">
+                <Cat size={14} className="text-gray-900" />
+              </div>
+              <span className="text-sm font-semibold text-white">DITC CAT</span>
+            </div>
+            <span className="text-xs text-gray-500">Need help?</span>
           </div>
-          <h1 className="text-lg font-semibold text-gray-900">สมัครบัญชีแอดมิน</h1>
-          <p className="text-sm text-gray-400">DITC CAT — แดชบอร์ดจัดการระบบ</p>
+
+          <div className="mt-14 px-4">
+            <h1 className="text-2xl font-semibold text-white [word-spacing:0.2em]">Create your account</h1>
+            <p className="text-xs text-gray-400 mt-2.5">Set up admin access to the DITC CAT dashboard.</p>
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-5 mt-9">
+              <div className="flex flex-col gap-2.5">
+                <Label htmlFor="displayName" className="text-gray-300">
+                  Display name
+                </Label>
+                <Input
+                  id="displayName"
+                  type="text"
+                  autoComplete="name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your name"
+                  className="bg-black/40 border-white/25 text-white placeholder:text-gray-500 rounded-xl"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2.5">
+                <Label htmlFor="email" className="text-gray-300">
+                  Work email
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@ditc.dev"
+                  className="bg-black/40 border-white/25 text-white placeholder:text-gray-500 rounded-xl"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2.5">
+                <Label htmlFor="password" className="text-gray-300">
+                  Password
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    className="bg-black/40 border-white/25 text-white placeholder:text-gray-500 pr-10 rounded-xl"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              {error && <p className="text-sm text-red-400">{error}</p>}
+
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full mt-1 bg-white text-gray-900 hover:bg-gray-200"
+              >
+                {loading ? "Creating account..." : "Create account"}
+              </Button>
+
+              <p className="text-center text-xs text-gray-500">
+                Already have an account?{" "}
+                <Link to="/login" className="text-gray-200 hover:underline font-medium">
+                  Sign in
+                </Link>
+              </p>
+            </form>
+          </div>
+
+          <p className="flex items-center gap-1.5 text-xs text-gray-600 mt-14">
+            <ShieldCheck size={13} />
+            Restricted to the DITC CAT team.
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-xl p-6 flex flex-col gap-4 shadow-sm">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="displayName">ชื่อที่แสดง</Label>
-            <Input
-              id="displayName"
-              type="text"
-              autoComplete="name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="ทีมงาน"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email">อีเมล</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@ditc.dev"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password">รหัสผ่าน</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="อย่างน้อย 8 ตัวอักษร"
-            />
-          </div>
-
-          {error && <p className="text-sm text-red-500">{error}</p>}
-
-          <Button type="submit" disabled={loading} className="w-full mt-2">
-            {loading ? "กำลังสมัคร..." : "สมัครสมาชิก"}
-          </Button>
-
-          <p className="text-center text-xs text-gray-400">
-            มีบัญชีอยู่แล้ว?{" "}
-            <Link to="/login" className="text-gray-700 hover:underline font-medium">
-              เข้าสู่ระบบ
-            </Link>
-          </p>
-        </form>
+        <AuthShowcase />
       </div>
     </div>
   );
