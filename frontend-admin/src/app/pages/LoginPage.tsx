@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { login, setToken } from "../../lib/api";
 import Orb from "../components/Orb/Orb";
+import Aurora from "../components/Aurora/Aurora";
 
 const TRUST_BADGES = [
   { label: "RAG พร้อมใช้งาน", className: "-top-3 left-1/2 -translate-x-1/2" },
@@ -38,8 +39,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4 py-8">
-      <div className="relative w-full max-w-4xl bg-[#111214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden grid md:grid-cols-2">
+    <div className="relative min-h-screen flex items-center justify-center bg-gray-950 px-4 py-8 overflow-hidden">
+      <div className="absolute inset-0">
+        <Aurora colorStops={["#8167ff", "#B497CF", "#261c4f"]} blend={0.5} amplitude={1.0} speed={0.5} />
+      </div>
+
+      <div className="relative z-10 w-full max-w-4xl bg-[#111214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden grid md:grid-cols-2">
         <button
           onClick={() => navigate("/")}
           className="absolute top-4 right-4 z-20 text-gray-500 hover:text-gray-200 transition-colors"
