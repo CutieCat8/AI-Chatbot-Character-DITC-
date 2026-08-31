@@ -7,7 +7,7 @@ function formatTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) + " น.";
 }
 
-export function RightSidebar() {
+export function StatusPanel() {
   const [ditcDocs, setDitcDocs] = useState(0);
   const [camtDocs, setCamtDocs] = useState(0);
   const [total, setTotal] = useState(0);
@@ -80,16 +80,16 @@ export function RightSidebar() {
   const ditcPct = total ? Math.round((ditcDocs / total) * 100) : 0;
 
   return (
-    <aside className="w-56 shrink-0 flex flex-col gap-3">
+    <div className="flex flex-col gap-3">
       {/* Sync */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col gap-3">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
             <RefreshCw size={13} className="text-gray-400" />
             Sync
           </span>
-          <span className={`flex items-center gap-1 ${isRunning ? "text-sky-500" : "text-emerald-500"}`} style={{ fontSize: "0.68rem" }}>
-            <span className={`w-1.5 h-1.5 rounded-full inline-block ${isRunning ? "bg-sky-400 animate-pulse" : "bg-emerald-400"}`} />
+          <span className={`flex items-center gap-1 ${isRunning ? "text-sky-500" : "text-gray-500"}`} style={{ fontSize: "0.68rem" }}>
+            <span className={`w-1.5 h-1.5 rounded-full inline-block ${isRunning ? "bg-sky-400 animate-pulse" : "bg-emerald-500"}`} />
             {isRunning ? "Syncing…" : "Live"}
           </span>
         </div>
@@ -116,7 +116,7 @@ export function RightSidebar() {
       </div>
 
       {/* Attention */}
-      <div className="bg-white rounded-xl border border-amber-100 p-4 flex flex-col gap-2.5">
+      <div className="bg-white rounded-xl border border-amber-100 shadow-sm p-4 flex flex-col gap-2.5">
         <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
           <AlertTriangle size={13} className="text-amber-400" />
           Needs Attention
@@ -131,7 +131,7 @@ export function RightSidebar() {
       </div>
 
       {/* Storage */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col gap-3">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
         <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
           <Database size={13} className="text-gray-400" />
           Storage
@@ -143,14 +143,14 @@ export function RightSidebar() {
         </div>
 
         <div className="flex h-1 rounded-full overflow-hidden bg-gray-100">
-          <div className="bg-violet-300" style={{ width: `${ditcPct}%` }} />
-          <div className="bg-sky-200 flex-1" />
+          <div className="bg-gray-800" style={{ width: `${ditcPct}%` }} />
+          <div className="bg-gray-300 flex-1" />
         </div>
 
         <div className="flex flex-col gap-1.5">
           {[
-            { label: "DITC", count: ditcDocs, color: "bg-violet-300" },
-            { label: "CAMT", count: camtDocs, color: "bg-sky-200" },
+            { label: "DITC", count: ditcDocs, color: "bg-gray-800" },
+            { label: "CAMT", count: camtDocs, color: "bg-gray-300" },
           ].map(({ label, count, color }) => (
             <div key={label} className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -162,6 +162,6 @@ export function RightSidebar() {
           ))}
         </div>
       </div>
-    </aside>
+    </div>
   );
 }

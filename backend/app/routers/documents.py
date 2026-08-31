@@ -71,7 +71,10 @@ def list_documents(
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
 
     stmt = (
-        stmt.order_by(Document.updated_at.desc())
+        # updated_at เพียงอย่างเดียวไม่พอ — เอกสารที่ scrape มาพร้อมกันเป็น batch มัก
+        # ได้ timestamp เดียวกันเป๊ะ ทำให้ผลลัพธ์ OFFSET/LIMIT ไม่เสถียร (แถวซ้ำ/หายข้ามหน้า)
+        # ใส่ id.desc() เป็น tiebreaker ให้ลำดับนิ่งเสมอ
+        stmt.order_by(Document.updated_at.desc(), Document.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

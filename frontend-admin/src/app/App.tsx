@@ -7,6 +7,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import KnowledgeBasePage from "./pages/KnowledgeBasePage";
 import ChatPage from "./pages/ChatPage";
+import NotFoundPage from "./pages/NotFoundPage";
 
 export default function App() {
   return (
@@ -40,6 +41,8 @@ export default function App() {
             }
           />
         </Route>
+
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </ErrorBoundary>
   );

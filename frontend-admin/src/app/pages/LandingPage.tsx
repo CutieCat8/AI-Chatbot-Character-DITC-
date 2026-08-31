@@ -1,6 +1,7 @@
 import { Link } from "react-router";
-import { Cat, MessageCircle, Database, ShieldCheck } from "lucide-react";
+import { MessageCircle, Database, ShieldCheck } from "lucide-react";
 import { Button } from "../components/ui/button";
+import logo from "../../assets/logo.png";
 
 const FEATURES = [
   {
@@ -25,8 +26,8 @@ export default function LandingPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="h-14 flex items-center justify-between px-8 border-b border-gray-100 bg-white">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-gray-900 flex items-center justify-center">
-            <Cat size={14} className="text-white" />
+          <div className="w-7 h-7 rounded-md bg-white border border-gray-200 flex items-center justify-center overflow-hidden">
+            <img src={logo} alt="DITC CAT" className="w-full h-full object-contain p-0.5" />
           </div>
           <span className="text-sm font-semibold text-gray-900 tracking-tight">DITC CAT</span>
         </div>
@@ -36,8 +37,8 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-20 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-gray-900 flex items-center justify-center mb-6">
-          <Cat size={32} className="text-white" />
+        <div className="w-16 h-16 rounded-2xl bg-white border border-gray-200 flex items-center justify-center mb-6 overflow-hidden shadow-sm">
+          <img src={logo} alt="DITC CAT" className="w-full h-full object-contain p-2" />
         </div>
         <h1 className="text-3xl md:text-4xl font-semibold text-gray-900 max-w-2xl leading-tight">
           ผู้ช่วยแมว AI ประจำศูนย์ DITC

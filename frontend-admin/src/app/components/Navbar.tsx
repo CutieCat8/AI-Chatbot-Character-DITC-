@@ -1,6 +1,7 @@
-import { Bell, Cat, LogOut } from "lucide-react";
+import { Bell, LogOut } from "lucide-react";
 import { NavLink, useNavigate } from "react-router";
 import { clearToken } from "../../lib/api";
+import logo from "../../assets/logo.png";
 
 const NAV_ITEMS = [
   { label: "Knowledge Base", to: "/dashboard" },
@@ -18,8 +19,8 @@ export function Navbar() {
   return (
     <nav className="h-12 bg-white border-b border-gray-100 flex items-center px-8 gap-8 sticky top-0 z-50 shrink-0">
       <div className="flex items-center gap-2 shrink-0">
-        <div className="w-6 h-6 rounded-md bg-gray-900 flex items-center justify-center">
-          <Cat size={13} className="text-white" />
+        <div className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center overflow-hidden">
+          <img src={logo} alt="DITC CAT" className="w-full h-full object-contain p-0.5" />
         </div>
         <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#111", letterSpacing: "-0.01em" }}>
           DITC CAT

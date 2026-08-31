@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Search, Plus, Pencil, Trash2, Eye, Loader2 } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Eye, Loader2, FileText } from "lucide-react";
 import { listDocuments, deleteDocument, type DocumentOut, type SourceSite } from "../../lib/api";
 import { DocumentModal, type DocumentModalMode } from "./DocumentModal";
 
 const SRC_STYLE: Record<SourceSite, string> = {
-  ditc: "bg-violet-50 text-violet-600",
-  camt: "bg-sky-50 text-sky-600",
-  manual: "bg-gray-100 text-gray-600",
+  ditc: "bg-gray-800 text-gray-50",
+  camt: "bg-gray-200 text-gray-700",
+  manual: "bg-white text-gray-400 border border-gray-200",
 };
 
 const SRC_LABEL: Record<SourceSite, string> = {
@@ -18,20 +18,32 @@ const SRC_LABEL: Record<SourceSite, string> = {
 export type FilterSource = "all" | SourceSite;
 type FilterStatus = "all" | "active" | "inactive";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 12;
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
 }
 
-interface DocumentsTableProps {
+function urlPreview(doc: DocumentOut): string {
+  if (doc.source_site === "manual") return "เพิ่มโดยแอดมิน";
+  try {
+    const u = new URL(doc.source_url);
+    const decodedPath = decodeURIComponent(u.pathname);
+    const path = decodedPath === "/" ? "/" : `${decodedPath.slice(0, 28)}${decodedPath.length > 28 ? "…" : ""}`;
+    return `${u.hostname}${path}`;
+  } catch {
+    return doc.source_url;
+  }
+}
+
+interface DocumentsGridProps {
   search: string;
   onSearchChange: (q: string) => void;
   source: FilterSource;
   onSourceChange: (s: FilterSource) => void;
 }
 
-export function DocumentsTable({ search, onSearchChange, source: src, onSourceChange: setSrc }: DocumentsTableProps) {
+export function DocumentsGrid({ search, onSearchChange, source: src, onSourceChange: setSrc }: DocumentsGridProps) {
   const [status, setStatus] = useState<FilterStatus>("all");
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -103,95 +115,81 @@ export function DocumentsTable({ search, onSearchChange, source: src, onSourceCh
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100">
+    <div className="flex flex-col gap-4">
       {/* Toolbar */}
-      <div className="px-5 py-3 flex items-center gap-2 border-b border-gray-100">
-        <select
-          value={src}
-          onChange={(e) => setSrc(e.target.value as FilterSource)}
-          className="px-2.5 py-1.5 text-gray-500 bg-gray-50 border border-gray-100 rounded-lg outline-none hover:border-gray-300 transition-colors cursor-pointer"
-          style={{ fontSize: "0.75rem" }}
-        >
-          <option value="all">แหล่งที่มา</option>
-          <option value="ditc">DITC</option>
-          <option value="camt">CAMT</option>
-          <option value="manual">Manual</option>
-        </select>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center bg-white border border-gray-200 shadow-sm rounded-lg px-2.5 gap-1.5 focus-within:border-gray-400 transition-colors flex-1 max-w-sm">
+          <Search size={13} className="text-gray-400 shrink-0" />
+          <input
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="ค้นหาเอกสาร, หัวข้อ..."
+            className="py-2 bg-transparent outline-none text-gray-700 placeholder-gray-300 w-full"
+            style={{ fontSize: "0.8rem" }}
+          />
+        </div>
 
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as FilterStatus)}
-          className="px-2.5 py-1.5 text-gray-500 bg-gray-50 border border-gray-100 rounded-lg outline-none hover:border-gray-300 transition-colors cursor-pointer"
-          style={{ fontSize: "0.75rem" }}
+          className="px-2.5 py-2 text-gray-500 bg-white border border-gray-200 shadow-sm rounded-lg outline-none hover:border-gray-300 transition-colors cursor-pointer"
+          style={{ fontSize: "0.78rem" }}
         >
-          <option value="all">สถานะ</option>
+          <option value="all">สถานะ: ทั้งหมด</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
 
-        <div className="flex items-center bg-gray-50 border border-gray-100 rounded-lg px-2.5 gap-1.5 focus-within:border-gray-300 transition-colors">
-          <Search size={12} className="text-gray-400 shrink-0" />
-          <input
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="ค้นหา..."
-            className="py-1.5 bg-transparent outline-none text-gray-700 placeholder-gray-300 w-32"
+        {src !== "all" && (
+          <button
+            onClick={() => setSrc("all")}
+            className="px-2.5 py-2 text-gray-400 hover:text-gray-700 transition-colors"
             style={{ fontSize: "0.75rem" }}
-          />
-        </div>
+          >
+            ล้างตัวกรองแหล่งที่มา ✕
+          </button>
+        )}
 
         <div className="flex-1" />
 
         <button
           onClick={() => openModal("create", null)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gray-900 hover:bg-gray-700 text-white rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-900 hover:bg-gray-700 text-white rounded-lg transition-colors shrink-0"
         >
           <Plus size={13} />
           <span style={{ fontSize: "0.78rem", fontWeight: 500 }}>Add Entry</span>
         </button>
       </div>
 
-      {/* Table */}
-      <table className="w-full">
-        <thead>
-          <tr className="border-b border-gray-100">
-            {["Title", "Source", "Status", "อัปเดต", "Chunks", ""].map((h) => (
-              <th
-                key={h}
-                className="text-left px-5 py-2.5 text-gray-400"
-                style={{ fontSize: "0.68rem", fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase" }}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
+      {/* Grid */}
+      {loading && (
+        <div className="py-16 text-center text-gray-300" style={{ fontSize: "0.85rem" }}>กำลังโหลด...</div>
+      )}
+      {!loading && error && (
+        <div className="py-16 text-center text-red-400" style={{ fontSize: "0.85rem" }}>เชื่อมต่อ API ไม่สำเร็จ: {error}</div>
+      )}
+      {!loading && !error && items.length === 0 && (
+        <div className="py-16 text-center text-gray-300" style={{ fontSize: "0.85rem" }}>ไม่พบรายการ</div>
+      )}
+
+      {!loading && !error && items.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {items.map((d) => (
-            <tr key={d.id} className="border-b border-gray-50 hover:bg-gray-50/50 group transition-colors">
-              <td className="px-5 py-3 max-w-xs">
-                <span className="text-gray-800 line-clamp-1" style={{ fontSize: "0.835rem", fontWeight: 500 }}>
-                  {d.title ?? d.source_url}
-                </span>
-              </td>
-              <td className="px-5 py-3 whitespace-nowrap">
-                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${SRC_STYLE[d.source_site]}`} style={{ fontSize: "0.68rem" }}>
-                  {SRC_LABEL[d.source_site]}
-                </span>
-              </td>
-              <td className="px-5 py-3 whitespace-nowrap">
-                <span className={`flex items-center gap-1.5 ${d.is_active ? "text-emerald-600" : "text-amber-600"}`} style={{ fontSize: "0.78rem" }}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${d.is_active ? "bg-emerald-400" : "bg-amber-400"}`} />
-                  {d.is_active ? "Active" : "Inactive"}
-                </span>
-              </td>
-              <td className="px-5 py-3 whitespace-nowrap">
-                <span className="text-gray-400" style={{ fontSize: "0.78rem" }}>{formatDate(d.updated_at)}</span>
-              </td>
-              <td className="px-5 py-3 whitespace-nowrap">
-                <span className="text-gray-600" style={{ fontSize: "0.8rem", fontWeight: 500 }}>{d.chunk_count.toLocaleString()}</span>
-              </td>
-              <td className="px-5 py-3 whitespace-nowrap">
+            <div
+              key={d.id}
+              className="group relative bg-white rounded-xl border border-gray-100 shadow-sm hover:border-gray-300 hover:shadow-md hover:-translate-y-0.5 transition-all p-4 flex flex-col gap-3"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded font-semibold ${SRC_STYLE[d.source_site]}`} style={{ fontSize: "0.66rem" }}>
+                    {SRC_LABEL[d.source_site]}
+                  </span>
+                  <span className={`flex items-center gap-1 ${d.is_active ? "text-gray-500" : "text-amber-600"}`} style={{ fontSize: "0.7rem" }}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${d.is_active ? "bg-emerald-500" : "bg-amber-400"}`} />
+                    {d.is_active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => openModal("view", d.id)}
@@ -213,24 +211,31 @@ export function DocumentsTable({ search, onSearchChange, source: src, onSourceCh
                     {deletingId === d.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
                   </button>
                 </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </div>
 
-      {loading && (
-        <div className="py-16 text-center text-gray-300" style={{ fontSize: "0.85rem" }}>กำลังโหลด...</div>
-      )}
-      {!loading && error && (
-        <div className="py-16 text-center text-red-400" style={{ fontSize: "0.85rem" }}>เชื่อมต่อ API ไม่สำเร็จ: {error}</div>
-      )}
-      {!loading && !error && items.length === 0 && (
-        <div className="py-16 text-center text-gray-300" style={{ fontSize: "0.85rem" }}>ไม่พบรายการ</div>
+              <button onClick={() => openModal("view", d.id)} className="text-left flex-1 min-w-0 flex flex-col gap-1.5">
+                <div className="flex items-start gap-2">
+                  <FileText size={14} className="text-gray-300 mt-0.5 shrink-0" />
+                  <span className="text-gray-800 line-clamp-2" style={{ fontSize: "0.85rem", fontWeight: 500 }}>
+                    {d.title ?? d.source_url}
+                  </span>
+                </div>
+                <span className="text-gray-400 truncate pl-[1.375rem]" style={{ fontSize: "0.73rem" }}>
+                  {urlPreview(d)}
+                </span>
+              </button>
+
+              <div className="flex items-center justify-between pt-2.5 border-t border-gray-50" style={{ fontSize: "0.72rem" }}>
+                <span className="text-gray-400">{d.chunk_count.toLocaleString()} chunks</span>
+                <span className="text-gray-300">{formatDate(d.updated_at)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Footer */}
-      <div className="px-5 py-3 flex items-center justify-between">
+      <div className="flex items-center justify-between pt-1">
         <span className="text-gray-300" style={{ fontSize: "0.73rem" }}>
           {items.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{(page - 1) * PAGE_SIZE + items.length} / {total} รายการ
         </span>

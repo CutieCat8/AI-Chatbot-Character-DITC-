@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Sparkles } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,7 @@ import {
   updateDocument,
   type DocumentDetailOut,
 } from "../../lib/api";
+import { tidyScrapedText } from "../../lib/textClean";
 
 export type DocumentModalMode = "view" | "edit" | "create";
 
@@ -30,11 +31,25 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function MetaField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-gray-400" style={{ fontSize: "0.68rem", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <div className="text-gray-800" style={{ fontSize: "0.82rem" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }: DocumentModalProps) {
   const [doc, setDoc] = useState<DocumentDetailOut | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [showRaw, setShowRaw] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,6 +62,7 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
     if (!open) return;
 
     setError(null);
+    setShowRaw(false);
     if (mode === "create") {
       setDoc(null);
       setTitle("");
@@ -67,6 +83,15 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
       .catch((err) => setError(err instanceof Error ? err.message : "โหลดข้อมูลไม่สำเร็จ"))
       .finally(() => setLoading(false));
   }, [open, mode, documentId]);
+
+  const cleanedContent = useMemo(() => tidyScrapedText(content), [content]);
+  const removedLineCount = useMemo(() => {
+    const before = content.split(/\r?\n/).length;
+    const after = cleanedContent.split(/\r?\n/).length;
+    return Math.max(0, before - after);
+  }, [content, cleanedContent]);
+
+  const handleTidy = () => setContent(cleanedContent);
 
   const handleSave = async () => {
     if (!content.trim()) {
@@ -92,7 +117,7 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+      <DialogContent className="sm:max-w-3xl max-h-[88vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>
             {mode === "create" ? "เพิ่มเอกสารใหม่" : mode === "edit" ? "แก้ไขเอกสาร" : "รายละเอียดเอกสาร"}
@@ -106,21 +131,30 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
         ) : (
           <div className="flex-1 overflow-y-auto flex flex-col gap-4 px-1">
             {doc && (
-              <div className="flex flex-wrap items-center gap-3 text-gray-400" style={{ fontSize: "0.72rem" }}>
-                <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 font-semibold">
-                  {SRC_LABEL[doc.source_site] ?? doc.source_site}
-                </span>
-                <span>Chunks: {doc.chunk_count}</span>
-                <span>อัปเดต: {formatDate(doc.updated_at)}</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
+                <MetaField label="Source">{SRC_LABEL[doc.source_site] ?? doc.source_site}</MetaField>
+                <MetaField label="Status">
+                  <span className={`flex items-center gap-1.5 ${doc.is_active ? "text-gray-500" : "text-amber-600"}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${doc.is_active ? "bg-emerald-500" : "bg-amber-400"}`} />
+                    {doc.is_active ? "Active" : "Inactive"}
+                  </span>
+                </MetaField>
+                <MetaField label="อัปเดต">{formatDate(doc.updated_at)}</MetaField>
+                <MetaField label="Chunks">{doc.chunk_count.toLocaleString()}</MetaField>
                 {doc.source_site !== "manual" && (
-                  <a
-                    href={doc.source_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sky-500 hover:underline truncate max-w-xs"
-                  >
-                    {doc.source_url}
-                  </a>
+                  <div className="col-span-2 sm:col-span-4">
+                    <MetaField label="Source URL">
+                      <a
+                        href={doc.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sky-500 hover:underline break-all"
+                        style={{ fontSize: "0.78rem" }}
+                      >
+                        {doc.source_url}
+                      </a>
+                    </MetaField>
+                  </div>
                 )}
               </div>
             )}
@@ -141,20 +175,50 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
             </div>
 
             <div className="flex flex-col gap-1.5 flex-1 min-h-0">
-              <label className="text-gray-500" style={{ fontSize: "0.75rem", fontWeight: 500 }}>เนื้อหา</label>
+              <div className="flex items-center justify-between">
+                <label className="text-gray-500" style={{ fontSize: "0.75rem", fontWeight: 500 }}>เนื้อหา</label>
+
+                {isView && removedLineCount > 0 && (
+                  <button
+                    onClick={() => setShowRaw((v) => !v)}
+                    className="text-gray-400 hover:text-gray-700 transition-colors underline"
+                    style={{ fontSize: "0.72rem" }}
+                  >
+                    {showRaw ? "ดูฉบับตัดซ้ำ" : `ดูต้นฉบับ (มีบรรทัดซ้ำ ${removedLineCount} บรรทัด)`}
+                  </button>
+                )}
+
+                {!isView && removedLineCount > 0 && (
+                  <button
+                    onClick={handleTidy}
+                    className="flex items-center gap-1 text-violet-600 hover:text-violet-800 transition-colors"
+                    style={{ fontSize: "0.72rem", fontWeight: 500 }}
+                  >
+                    <Sparkles size={12} />
+                    จัดระเบียบข้อความ (ตัดซ้ำ {removedLineCount} บรรทัด)
+                  </button>
+                )}
+              </div>
+
               {isView ? (
-                <p className="text-gray-700 whitespace-pre-wrap" style={{ fontSize: "0.85rem", lineHeight: 1.7 }}>
-                  {content}
+                <p className="text-gray-700 whitespace-pre-wrap" style={{ fontSize: "0.85rem", lineHeight: 1.75 }}>
+                  {showRaw ? content : cleanedContent}
                 </p>
               ) : (
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="เนื้อหาเอกสาร..."
-                  rows={10}
-                  className="px-3 py-2 border border-gray-200 rounded-lg outline-none focus:border-gray-400 transition-colors resize-y"
-                  style={{ fontSize: "0.85rem", lineHeight: 1.6 }}
+                  rows={16}
+                  className="px-3 py-2.5 border border-gray-200 rounded-lg outline-none focus:border-gray-400 transition-colors resize-y"
+                  style={{ fontSize: "0.85rem", lineHeight: 1.7 }}
                 />
+              )}
+
+              {!isView && (
+                <p className="text-gray-400" style={{ fontSize: "0.7rem" }}>
+                  "จัดระเบียบข้อความ" จะตัดเฉพาะบรรทัด/บล็อกที่ซ้ำติดกัน (เช่นเมนูที่ถูกดึงมาซ้ำ) — ไม่ตัดหัวข้อที่ตั้งใจซ้ำในแต่ละหมวด กดแล้วยังแก้ไขต่อได้ก่อนบันทึก
+                </p>
               )}
             </div>
 
