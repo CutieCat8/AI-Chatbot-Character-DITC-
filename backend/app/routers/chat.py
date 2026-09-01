@@ -52,9 +52,14 @@ def ask(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
 
     llm = get_llm_client()
 
+    # บทสนทนาก่อนหน้า (frontend ส่งกลับมาเอง เซิร์ฟเวอร์ไม่เก็บลง DB ตาม PRD ข้อ 4.1)
+    history = [(t.question.strip(), t.answer.strip()) for t in payload.history if t.question.strip()]
+
     # ภาษาไทยไม่มีช่องว่างคั่นคำ ตัดคำถามแบบสนทนาด้วย split() ธรรมดาไม่ได้ผล
     # → ให้ LLM ช่วยแปลงคำถามเป็นคำค้นที่น่าจะตรงกับคำในเว็บ CAMT/DITC จริง ๆ ก่อน
-    expanded_terms = expand_search_terms(llm, question)
+    # ส่ง history เข้าไปด้วยเพื่อให้คำถามต่อเนื่องอย่าง "แล้วค่าเทอมล่ะ" รู้ว่าพูดถึงหลักสูตรไหน
+    # (ไม่ได้เพิ่มการเรียก LLM — เติมข้อมูลเข้าไปในรอบที่เรียกอยู่แล้ว)
+    expanded_terms = expand_search_terms(llm, question, history)
 
     # รวม 3 ชุดผลลัพธ์ จำกัดไม่เกิน 2 chunk ต่อ document กันหลักสูตรเดียวฮุบที่หมด
     # (คำถามเปรียบเทียบหลายหลักสูตรต้องมีที่ให้ทุกหลักสูตรติดเข้ามาด้วย)
@@ -89,7 +94,15 @@ def ask(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
         f"[{i + 1}] ({r.document_title or r.source_url})\n{r.content}"
         for i, r in enumerate(results)
     )
-    user_message = f"ข้อมูลอ้างอิง:\n{context}\n\nคำถาม: {question}"
+    # แนบบทสนทนาก่อนหน้าให้ด้วย เพื่อให้คำตอบอ่านต่อเนื่องเป็นธรรมชาติและไม่ถามซ้ำสิ่งที่เพิ่งตอบไป
+    conversation = (
+        "บทสนทนาก่อนหน้า:\n"
+        + "\n".join(f"ผู้ใช้: {q}\nคุณ: {a}" for q, a in history)
+        + "\n\n"
+        if history
+        else ""
+    )
+    user_message = f"{conversation}ข้อมูลอ้างอิง:\n{context}\n\nคำถาม: {question}"
 
     try:
         answer = llm.complete(SYSTEM_PROMPT, user_message, max_tokens=CHAT_MAX_TOKENS)

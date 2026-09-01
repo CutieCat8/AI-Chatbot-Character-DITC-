@@ -10,6 +10,7 @@ retrieval.py — ค้นชิ้นเนื้อหา (chunk) ที่ใ
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from sqlalchemy import or_, select
@@ -140,27 +141,50 @@ def keyword_search(
     # DII/MMIT มีแต่ละคำหลุดไปคนละ chunk เลยแพ้หน้าลิสต์ที่คำมากระจุกที่เดียว)
     # แก้โดยให้คะแนนระดับ "document" ก่อน (คำที่ตรง รวมทุก chunk ของเอกสารนั้น ไม่ซ้ำคำ)
     # แล้วค่อยเลือก chunk ตัวแทนจากเอกสารที่คะแนนสูงสุด
-    doc_keyword_hits: dict[int, set[str]] = {}
-    rows_by_doc: dict[int, list] = {}
+    matched_rows: list[tuple[set[str], object]] = []
+    keyword_freq: dict[str, int] = dict.fromkeys(keywords, 0)
     for r in db.execute(stmt).all():
         matched = {kw for kw in keywords if kw.lower() in r.content.lower()}
         if not matched:
             continue
-        doc_keyword_hits.setdefault(r.document_id, set()).update(matched)
-        rows_by_doc.setdefault(r.document_id, []).append((len(matched), r))
+        for kw in matched:
+            keyword_freq[kw] += 1
+        matched_rows.append((matched, r))
 
+    # ให้น้ำหนักคำหายากมากกว่าคำเกลื่อน (แนวคิดเดียวกับ IDF)
+    # ทำไมต้องมี: การนับ "จำนวนคำที่ตรง" เฉย ๆ ทำให้คำที่โผล่ในทุก chunk ของเอกสารเดียวกัน
+    # (เช่น "SE", "วิศวกรรมซอฟต์แวร์" ที่อยู่ในหัวทุกหน้าของหลักสูตรนั้น) มีน้ำหนักเท่ากับคำชี้เฉพาะ
+    # อย่าง "ค่าธรรมเนียมการศึกษา" ที่มีแค่ 3 chunk จาก 373 — คะแนนจึงเสมอกันหมดแล้วไปตัดสินด้วย
+    # ลำดับแถวที่ Postgres คืนมาซึ่งไม่แน่นอน
+    # เคสจริงที่พัง: ถาม "ค่าเทอม SE เท่าไหร่" ได้ chunk ของ SE มาถูกเอกสาร แต่เป็นชิ้นรับสมัคร
+    # ไม่ใช่ชิ้นที่มีตัวเลขค่าเทอม บอทเลยตอบว่าไม่มีข้อมูลทั้งที่อยู่ใน DB
+    total = len(matched_rows) or 1
+    weights = {kw: math.log(1 + total / (1 + freq)) for kw, freq in keyword_freq.items()}
+
+    def _score(matched: set[str]) -> float:
+        return sum(weights[kw] for kw in matched)
+
+    doc_keyword_hits: dict[int, set[str]] = {}
+    rows_by_doc: dict[int, list] = {}
+    for matched, r in matched_rows:
+        doc_keyword_hits.setdefault(r.document_id, set()).update(matched)
+        rows_by_doc.setdefault(r.document_id, []).append((_score(matched), r))
+
+    # จัดอันดับเอกสารด้วยคะแนนถ่วงน้ำหนักเช่นกัน — เอกสารที่โดนคำชี้เฉพาะควรมาก่อน
+    # เอกสารที่โดนแต่คำกว้าง ๆ หลายคำ (ยังคงรวมคำจากทุก chunk ของเอกสารเหมือนเดิม)
     ranked_doc_ids = sorted(
         doc_keyword_hits,
-        key=lambda doc_id: len(doc_keyword_hits[doc_id]),
+        key=lambda doc_id: _score(doc_keyword_hits[doc_id]),
         reverse=True,
     )
+    max_score = sum(weights.values()) or 1.0
 
     results: list[RetrievedChunk] = []
     for doc_id in ranked_doc_ids:
         if len(results) >= top_k:
             break
-        doc_score = len(doc_keyword_hits[doc_id]) / len(keywords)
-        # ในเอกสารเดียวกัน เอา chunk ที่คำตรงเยอะสุดก่อน (ตัวแทนเนื้อหาที่ดีสุด)
+        doc_score = _score(doc_keyword_hits[doc_id]) / max_score
+        # ในเอกสารเดียวกัน เอา chunk ที่คะแนนถ่วงน้ำหนักสูงสุดก่อน (ตัวแทนเนื้อหาที่ดีสุด)
         chunks = sorted(rows_by_doc[doc_id], key=lambda pair: pair[0], reverse=True)
         take = max_per_document if max_per_document is not None else len(chunks)
         for _, r in chunks[:take]:
