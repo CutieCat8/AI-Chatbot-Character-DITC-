@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     LLM_MODEL: str = "claude-sonnet-5"
     DEEPSEEK_API_KEY: str = ""
-    DEEPSEEK_MODEL: str = "deepseek-v4-pro"
+    DEEPSEEK_MODEL: str = "deepseek-chat"
 
     # ---- Embedding (RAG) ----
     EMBEDDING_PROVIDER: str = "openai"
