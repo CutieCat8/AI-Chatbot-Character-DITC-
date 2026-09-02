@@ -1,7 +1,7 @@
 # ---- Web framework ----
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-pydantic==2.10.4
+pydantic==2.13.5
 pydantic-settings==2.7.1
 
 # ---- Database ----
@@ -21,3 +21,12 @@ lxml==5.3.0              # parser เร็วให้ BeautifulSoup
 # ---- Utilities ----
 python-dotenv==1.0.1
 httpx==0.28.1
+
+# ---- Embedding (local, ฟรี — ดู docs/adr/embedding-model.md) ----
+# CPU wheel เท่านั้น ไม่ต้องมี GPU/CUDA (เครื่อง dev/demo ไม่มี GPU)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0
+sentence-transformers==6.0.1
+
+# ---- Dev / Test ----
+pytest==8.3.4

@@ -40,9 +40,13 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
     # ---- Embedding (RAG) ----
-    EMBEDDING_PROVIDER: str = "openai"
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_DIM: int = 1536
+    # e5 = multilingual-e5-large รันเอง ฟรี — เลือกหลัง benchmark เทียบ BGE-M3 แล้ว
+    # (recall@3 85% vs 70% + ไม่มีอาการเอกสารเดียวครอบจักรวาล) ดู docs/adr/embedding-model.md
+    EMBEDDING_PROVIDER: str = "e5"
+    EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"
+    # EMBEDDING_DIM ใช้เป็นค่าตั้งต้นสำหรับ fake/openai provider เท่านั้น (ไม่มี "โมเดล" ให้อ่าน dim จริง)
+    # ส่วน provider e5 อ่าน dim จากโมเดลที่โหลดจริงเสมอ (ดู SentenceTransformerEmbedder) ไม่ใช้ค่านี้
+    EMBEDDING_DIM: int = 1024
 
     # ---- Voice (Sprint 2) ----
     STT_PROVIDER: str = "google"

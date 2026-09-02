@@ -18,6 +18,8 @@ env/
 credentials*.json
 service-account*.json
 
+backend/*_result.txt
+
 # ---- Node / Frontend ----
 node_modules/
 .next/
