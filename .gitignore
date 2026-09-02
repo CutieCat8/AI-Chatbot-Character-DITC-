@@ -18,6 +18,7 @@ env/
 credentials*.json
 service-account*.json
 
+backend/app/scripts/_spike_audio/
 backend/*_result.txt
 
 # ---- Node / Frontend ----

@@ -35,9 +35,10 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "claude"
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
-    LLM_MODEL: str = "claude-sonnet-5"
+    ANTHROPIC_MODEL: str = "claude-sonnet-5"
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_MODEL: str = "deepseek-chat"
+    GEMINI_API_KEY: str = ""
 
     # ---- Embedding (RAG) ----
     # e5 = multilingual-e5-large รันเอง ฟรี — เลือกหลัง benchmark เทียบ BGE-M3 แล้ว

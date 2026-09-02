@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>DITC CAT — Voice Pipeline Test</title>
+<style>
+  body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  button { font-size: 16px; padding: 10px 20px; margin-right: 8px; }
+  #log { white-space: pre-wrap; background: #f4f4f4; padding: 12px; border-radius: 8px; margin-top: 16px; min-height: 200px; font-size: 13px; }
+  #status { font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>🐱 DITC CAT — Voice Pipeline Test</h1>
+  <p>ทดสอบ mic → WebSocket → Gemini Live → เสียงตอบกลับ (มี jitter buffer 1.5s กันเสียงสะดุด)</p>
+  <button id="startBtn">🎤 เริ่มพูด</button>
+  <button id="stopBtn" disabled>⏹ หยุด</button>
+  <p>สถานะ: <span id="status">ยังไม่เริ่ม</span></p>
+  <div id="log"></div>
+
+<script>
+const JITTER_BUFFER_MS = 1500; // บัฟเฟอร์ก่อนเริ่มเล่น กันเน็ตไม่นิ่งตามที่ตกลงกันไว้
+const OUTPUT_SAMPLE_RATE = 24000; // Gemini Live ส่งเสียงกลับมาที่ 24kHz PCM16 mono
+const INPUT_SAMPLE_RATE = 16000;  // Gemini Live รับเสียงเข้าที่ 16kHz PCM16 mono
+
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+function log(msg) {
+  logEl.textContent += msg + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+let ws, audioCtx, micStream, micSource, micProcessor;
+let playbackQueue = [];       // คิวของ AudioBuffer ที่รอเล่น
+let playbackStarted = false;  // เริ่มเล่นแล้วหรือยัง (รอ jitter buffer ก่อน)
+let nextPlayTime = 0;
+
+function floatTo16BitPCM(float32Array) {
+  const buf = new ArrayBuffer(float32Array.length * 2);
+  const view = new DataView(buf);
+  for (let i = 0; i < float32Array.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buf;
+}
+
+function pcm16ToAudioBuffer(arrayBuffer) {
+  const int16 = new Int16Array(arrayBuffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+  const buffer = audioCtx.createBuffer(1, float32.length, OUTPUT_SAMPLE_RATE);
+  buffer.copyToChannel(float32, 0);
+  return buffer;
+}
+
+function schedulePlayback(audioBuffer) {
+  const source = audioCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(audioCtx.destination);
+  const now = audioCtx.currentTime;
+  if (nextPlayTime < now) nextPlayTime = now;
+  source.start(nextPlayTime);
+  nextPlayTime += audioBuffer.duration;
+}
+
+function enqueueAudio(arrayBuffer) {
+  const audioBuffer = pcm16ToAudioBuffer(arrayBuffer);
+  playbackQueue.push(audioBuffer);
+
+  if (!playbackStarted) {
+    // รอสะสมให้ได้ ~JITTER_BUFFER_MS ก่อนเริ่มเล่นชุดแรก กันเน็ตกระตุกทำให้เสียงสะดุด
+    const bufferedMs = playbackQueue.reduce((sum, b) => sum + b.duration * 1000, 0);
+    if (bufferedMs >= JITTER_BUFFER_MS) {
+      playbackStarted = true;
+      log(`[playback] เริ่มเล่น หลัง buffer ${bufferedMs.toFixed(0)}ms`);
+      nextPlayTime = audioCtx.currentTime;
+      for (const b of playbackQueue) schedulePlayback(b);
+      playbackQueue = [];
+    }
+  } else {
+    schedulePlayback(audioBuffer);
+  }
+}
+
+async function start() {
+  statusEl.textContent = 'กำลังเชื่อมต่อ...';
+  audioCtx = new AudioContext();
+  playbackQueue = [];
+  playbackStarted = false;
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/api/voice/ws`);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = async () => {
+    statusEl.textContent = '🎙️ กำลังฟัง...';
+    log('[ws] connected');
+
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: INPUT_SAMPLE_RATE } });
+    micSource = audioCtx.createMediaStreamSource(micStream);
+    micProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+    micSource.connect(micProcessor);
+    micProcessor.connect(audioCtx.destination);
+
+    micProcessor.onaudioprocess = (e) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const input = e.inputBuffer.getChannelData(0);
+      // resample คร่าว ๆ จาก AudioContext sample rate เป็น 16kHz ถ้าจำเป็น
+      const ratio = audioCtx.sampleRate / INPUT_SAMPLE_RATE;
+      const outLength = Math.floor(input.length / ratio);
+      const resampled = new Float32Array(outLength);
+      for (let i = 0; i < outLength; i++) resampled[i] = input[Math.floor(i * ratio)];
+      ws.send(floatTo16BitPCM(resampled));
+    };
+  };
+
+  ws.onmessage = (event) => {
+    if (typeof event.data === 'string') {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'transcript') log(`[แมวพูด] ${msg.text}`);
+      if (msg.type === 'turn_complete') log('[turn complete]');
+    } else {
+      enqueueAudio(event.data);
+    }
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'ปิดการเชื่อมต่อแล้ว';
+    log('[ws] closed');
+  };
+  ws.onerror = (e) => log('[ws] error: ' + e);
+
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+}
+
+function stop() {
+  if (micProcessor) micProcessor.disconnect();
+  if (micSource) micSource.disconnect();
+  if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  if (ws) ws.close();
+  statusEl.textContent = 'หยุดแล้ว';
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+}
+
+startBtn.onclick = start;
+stopBtn.onclick = stop;
+</script>
+</body>
+</html>

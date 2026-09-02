@@ -166,7 +166,7 @@ def get_llm_client() -> LLMClient:
         return DeepSeekClient(api_key=settings.DEEPSEEK_API_KEY, model=settings.DEEPSEEK_MODEL)
 
     if provider == "claude":
-        return ClaudeClient(api_key=settings.ANTHROPIC_API_KEY, model=settings.LLM_MODEL)
+        return ClaudeClient(api_key=settings.ANTHROPIC_API_KEY, model=settings.ANTHROPIC_MODEL)
 
     raise ValueError(
         f"LLM_PROVIDER '{provider}' ไม่รองรับ (มีให้: claude | deepseek | fake)"

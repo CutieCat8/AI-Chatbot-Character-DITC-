@@ -11,12 +11,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
 from app.rag.embedding import get_embedder
-from app.routers import auth, chat, documents
+from app.routers import auth, chat, documents, voice
 
 logger = logging.getLogger("main")
 
@@ -77,6 +78,11 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+app.include_router(voice.router)
+
+# หน้าทดสอบ voice pipeline ล้วน ๆ (mic -> ws -> Gemini Live -> เสียงตอบ) — ไม่ใช่ frontend-character จริง
+# ใช้ก่อนที่ frontend-character จะสร้างจริง เพื่อพิสูจน์ backend piece ได้เร็ว ไม่ต้องรอ scaffold ทั้งแอป
+app.mount("/voice-test", StaticFiles(directory="app/static", html=True), name="voice-test")
 
 
 @app.get("/", tags=["meta"])
