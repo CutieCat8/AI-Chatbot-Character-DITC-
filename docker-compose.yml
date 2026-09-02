@@ -46,7 +46,11 @@ services:
     volumes:
       # mount โค้ดเข้าไปเพื่อ hot-reload ตอน dev
       - ./backend:/app
+      # แคชโมเดล embedding (~2GB) ไว้คนละที่กับ host — ไม่มี volume นี้จะโหลดจาก HuggingFace
+      # ใหม่ทุกครั้งที่ recreate container (เจอปัญหานี้จริงตอนสลับมา e5-large)
+      - hf-cache:/root/.cache/huggingface
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   postgres-data:
+  hf-cache:
