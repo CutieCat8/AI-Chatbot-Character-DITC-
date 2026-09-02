@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     VOICE_RECONNECT_MAX_BACKOFF_S: float = 30.0  # เพดาน exponential backoff ตอน reconnect
     # กันบาร์จอินหลอกจากเสียงลำโพงเข้าไมค์เอง (ไม่มี AEC บนเครื่อง dev) — เพิกเฉยสัญญาณ interrupted
     # ที่มาเร็วเกินไปหลังเริ่มเล่นเสียง เพราะมนุษย์พูดแทรกไม่ทันเร็วขนาดนั้นจริง ๆ
-    VOICE_BARGE_IN_GRACE_S: float = 1.2
+    VOICE_BARGE_IN_GRACE_S: float = 1.5
     # เลือกอุปกรณ์ไมค์/ลำโพงเอง (ใส่ index ตัวเลข หรือส่วนหนึ่งของชื่ออุปกรณ์) เว้นว่างไว้ = ใช้ default
     # ของเครื่อง — แนะนำลองอุปกรณ์ที่มี "AI Noise-cancelling" ในชื่อถ้ามี ช่วยลดเสียงสะท้อนได้เยอะ
     VOICE_MIC_DEVICE: str = ""

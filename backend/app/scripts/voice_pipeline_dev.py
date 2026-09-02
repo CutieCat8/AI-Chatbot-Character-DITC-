@@ -22,8 +22,11 @@ voice_pipeline_dev.py — วงจรเสียงเต็มรูปแบ
 VOICE_RECONNECT_MAX_BACKOFF_S, VOICE_BARGE_IN_GRACE_S, VOICE_MIC_DEVICE, VOICE_SPEAKER_DEVICE (ดู app/config.py)
 
 หมายเหตุ (เจอจริงตอนทดสอบครั้งแรก): เครื่อง dev ที่ไม่มี AEC (ไมค์/ลำโพงบนเครื่องเดียวกัน ไม่ใส่หูฟัง)
-เสียงลำโพงจะหลุดเข้าไมค์แล้วโดน Gemini ตีความว่าผู้ใช้พูดแทรกเองได้ (false barge-in) — ลดปัญหาด้วย
-VOICE_BARGE_IN_GRACE_S (เพิกเฉย interrupted ที่มาไวเกินไปหลังเริ่มเล่น) แต่ทางที่ดีที่สุดคือใส่หูฟัง
+เสียงลำโพงจะหลุดเข้าไมค์แล้วโดน Gemini ตีความว่าผู้ใช้พูดแทรกเองได้ (false barge-in) — ยืนยันจาก log จริง
+ว่าเป็นเสียงสะท้อนไม่ใช่คนพูดจริง เพราะ input_transcription ตอนนั้นไม่มีคำใหม่เพิ่มเข้ามาเลย
+แก้หลักที่ config `automatic_activity_detection` (start_of_speech_sensitivity=LOW, prefix_padding_ms=400)
+ให้ Gemini เองต้องเจอเสียงพูดต่อเนื่อง ~400ms ก่อนนับเป็นการพูด — เสียงสะท้อนสั้น ๆ ผ่านเกณฑ์นี้ไม่ได้
+ส่วน VOICE_BARGE_IN_GRACE_S เป็นเกราะชั้นที่สองฝั่งเรา (กันกรณีหลุดผ่านมาได้) ทางที่ดีที่สุดคือใส่หูฟัง
 หรือเลือกอุปกรณ์ไมค์ที่มี noise-cancelling ผ่าน VOICE_MIC_DEVICE ถ้าเครื่องมี (เช็คชื่อได้ด้วย
 `python -c "import sounddevice as sd; print(sd.query_devices())"`)
 """
@@ -202,6 +205,16 @@ class ConversationSession:
             input_audio_transcription=types.AudioTranscriptionConfig(),
             system_instruction=SYSTEM_INSTRUCTION,
             tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
+            # ตัวจริงที่แก้ false barge-in ได้ตรงจุด (ดีกว่าเดา grace window ฝั่งเรา เพราะดีเลย์ของ
+            # เสียงสะท้อนจากลำโพงเข้าไมค์ไม่คงที่): บังคับให้ Gemini เองต้องเจอเสียงพูดต่อเนื่องอย่างน้อย
+            # ~400ms ก่อนถึงจะนับเป็น "เริ่มพูด" — เสียงสะท้อนสั้น ๆ ไม่ต่อเนื่องพอจะผ่านเกณฑ์นี้
+            # ส่วนคนพูดแทรกจริงจะพูดต่อเนื่องเกิน 400ms อยู่แล้ว ไม่กระทบ barge-in จริง
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
+                    prefix_padding_ms=400,
+                ),
+            ),
         )
 
         awaiting_response = False
