@@ -25,6 +25,10 @@ httpx==0.28.1
 # ---- Voice (Gemini Live) ----
 google-genai==2.21.0
 
+# ---- Voice pipeline (dev-machine mic/speaker + VAD gating) ----
+sounddevice==0.5.6
+silero-vad==6.2.1   # ใช้ torch ตัวเดียวกับ embedding ข้างล่าง ไม่โหลดโมเดลผ่านเน็ตซ้ำ (bundle มาในแพ็กเกจ)
+
 # ---- Embedding (local, ฟรี — ดู docs/adr/embedding-model.md) ----
 # CPU wheel เท่านั้น ไม่ต้องมี GPU/CUDA (เครื่อง dev/demo ไม่มี GPU)
 --extra-index-url https://download.pytorch.org/whl/cpu

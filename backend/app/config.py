@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     STT_PROVIDER: str = "google"
     TTS_PROVIDER: str = "google"
 
+    # ---- Voice pipeline (dev-machine, Gemini Live) ----
+    VAD_SPEECH_THRESHOLD: float = 0.5  # silero-vad prob ที่ถือว่า "กำลังพูด" (0-1)
+    VAD_SILENCE_TIMEOUT_S: float = 8.0  # เงียบต่อเนื่องกี่วิ ถึงปิด session อัตโนมัติ
+    AUDIO_OUTPUT_BUFFER_S: float = 1.5  # บัฟเฟอร์เสียงตอบก่อนเริ่มเล่น กันสะดุดตอนเน็ตไม่นิ่ง
+    VOICE_RECONNECT_MAX_BACKOFF_S: float = 30.0  # เพดาน exponential backoff ตอน reconnect
+
     # ---- Scraper (T03) ----
     # เว็บ CAMT เป็น server-rendered (WordPress) → ดึงด้วย HTML scraper ได้ตรง ๆ
     # ใช้ www. เพราะ apex domain (camt.cmu.ac.th) ใบรับรอง SSL ไม่ตรงชื่อโฮสต์

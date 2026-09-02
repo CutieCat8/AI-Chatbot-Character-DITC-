@@ -19,6 +19,8 @@ credentials*.json
 service-account*.json
 
 backend/app/scripts/_spike_audio/
+backend/app/scripts/_voice_cache/
+backend/app/scripts/real_voice_samples/
 backend/*_result.txt
 
 # ---- Node / Frontend ----
