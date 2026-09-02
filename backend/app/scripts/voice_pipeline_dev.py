@@ -19,7 +19,13 @@ voice_pipeline_dev.py — วงจรเสียงเต็มรูปแบ
 กด Ctrl+C เพื่อหยุด (ปิด session/stream ให้เรียบร้อยก่อนออก)
 
 ปรับพฤติกรรมได้ผ่าน .env: VAD_SPEECH_THRESHOLD, VAD_SILENCE_TIMEOUT_S, AUDIO_OUTPUT_BUFFER_S,
-VOICE_RECONNECT_MAX_BACKOFF_S (ดู app/config.py)
+VOICE_RECONNECT_MAX_BACKOFF_S, VOICE_BARGE_IN_GRACE_S, VOICE_MIC_DEVICE, VOICE_SPEAKER_DEVICE (ดู app/config.py)
+
+หมายเหตุ (เจอจริงตอนทดสอบครั้งแรก): เครื่อง dev ที่ไม่มี AEC (ไมค์/ลำโพงบนเครื่องเดียวกัน ไม่ใส่หูฟัง)
+เสียงลำโพงจะหลุดเข้าไมค์แล้วโดน Gemini ตีความว่าผู้ใช้พูดแทรกเองได้ (false barge-in) — ลดปัญหาด้วย
+VOICE_BARGE_IN_GRACE_S (เพิกเฉย interrupted ที่มาไวเกินไปหลังเริ่มเล่น) แต่ทางที่ดีที่สุดคือใส่หูฟัง
+หรือเลือกอุปกรณ์ไมค์ที่มี noise-cancelling ผ่าน VOICE_MIC_DEVICE ถ้าเครื่องมี (เช็คชื่อได้ด้วย
+`python -c "import sounddevice as sd; print(sd.query_devices())"`)
 """
 from __future__ import annotations
 
@@ -81,11 +87,11 @@ def ensure_fallback_audio() -> bytes:
 # ไมค์: sounddevice callback (รันคนละ thread) -> ผลัก raw bytes เข้า asyncio.Queue ของ event loop หลัก
 # ---------------------------------------------------------------------------
 class MicSource:
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, loop: asyncio.AbstractEventLoop, device: int | str | None = None) -> None:
         self._loop = loop
         self.queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._stream = sd.RawInputStream(
-            samplerate=INPUT_RATE, channels=1, dtype="int16",
+            samplerate=INPUT_RATE, channels=1, dtype="int16", device=device,
             blocksize=VAD_FRAME_SAMPLES, callback=self._callback,
         )
 
@@ -107,13 +113,15 @@ class MicSource:
 # ลำโพง: บัฟเฟอร์ AUDIO_OUTPUT_BUFFER_S วิก่อนเริ่มเล่น, เคลียร์ทันทีเมื่อโดนบาร์จอิน
 # ---------------------------------------------------------------------------
 class AudioPlayer:
-    def __init__(self, buffer_seconds: float) -> None:
+    def __init__(self, buffer_seconds: float, device: int | str | None = None) -> None:
         self._buffer_bytes_needed = int(buffer_seconds * OUTPUT_RATE * 2)
         self._buf = bytearray()
         self._lock = threading.Lock()
+        self._device = device
         self._stream: sd.RawOutputStream | None = None
         self.on_first_frame_played: Callable[[], None] | None = None  # เรียกครั้งเดียวตอนเริ่มเล่นจริง (วัด latency)
         self._fired_first_frame = False
+        self.turn_started_at: float | None = None  # ตอนเริ่มเล่นเสียงของ turn ปัจจุบัน ใช้กัน false barge-in
 
     def feed(self, data: bytes) -> None:
         with self._lock:
@@ -137,15 +145,16 @@ class AudioPlayer:
 
     def _start_stream(self) -> None:
         self._fired_first_frame = False
+        self.turn_started_at = time.time()
         self._stream = sd.RawOutputStream(
-            samplerate=OUTPUT_RATE, channels=1, dtype="int16", callback=self._callback,
+            samplerate=OUTPUT_RATE, channels=1, dtype="int16", device=self._device, callback=self._callback,
         )
         self._stream.start()
 
     def play_fallback_blocking(self, pcm: bytes) -> None:
         """เล่นประโยคสำรองแบบ blocking สั้น ๆ ตอน reconnect (ไม่ต้องผ่านคิว/บัฟเฟอร์ปกติ)"""
         self.stop()
-        sd.play(np.frombuffer(pcm, dtype=np.int16), samplerate=OUTPUT_RATE, blocking=True)
+        sd.play(np.frombuffer(pcm, dtype=np.int16), samplerate=OUTPUT_RATE, device=self._device, blocking=True)
 
     def stop(self) -> None:
         """เคลียร์บัฟ+หยุดเล่นทันที — ใช้ตอนบาร์จอินหรือจบ session"""
@@ -155,6 +164,7 @@ class AudioPlayer:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+        self.turn_started_at = None
 
 
 # ---------------------------------------------------------------------------
@@ -233,17 +243,30 @@ class ConversationSession:
 
             async def gemini_to_speaker() -> None:
                 nonlocal awaiting_response, last_activity_ts, turn_user_text, turn_cat_text
+                loop = asyncio.get_running_loop()
                 async for response in session.receive():
                     if response.server_content and response.server_content.interrupted:
-                        logger.info("[BARGE-IN] ผู้ใช้พูดแทรก -> หยุดเล่นเสียงทันที")
-                        self.player.stop()
-                        awaiting_response = False
+                        started_at = self.player.turn_started_at
+                        # เครื่อง dev ไม่มี AEC — เสียงลำโพงเองมักหลุดเข้าไมค์แล้วโดน Gemini ตีความว่า
+                        # ผู้ใช้พูดแทรก โดยเฉพาะช่วงแรกที่เพิ่งเริ่มเล่น (คนจริงพูดแทรกเร็วขนาดนั้นไม่ได้)
+                        # เพิกเฉยสัญญาณนี้ถ้ามาไวเกินไปหลังเริ่มเล่น
+                        if started_at is not None and time.time() - started_at < settings.VOICE_BARGE_IN_GRACE_S:
+                            logger.info(
+                                "[BARGE-IN] เพิกเฉย (มาไวกว่า %.1fs หลังเริ่มเล่น น่าจะเป็นเสียงลำโพงเข้าไมค์เอง)",
+                                settings.VOICE_BARGE_IN_GRACE_S,
+                            )
+                        else:
+                            logger.info("[BARGE-IN] ผู้ใช้พูดแทรก -> หยุดเล่นเสียงทันที")
+                            self.player.stop()
+                            awaiting_response = False
 
                     if response.tool_call:
                         for fc in response.tool_call.function_calls:
                             q = fc.args.get("query", "")
                             t0 = time.perf_counter()
-                            result_text = run_retrieval(q)
+                            # run_retrieval เป็น blocking call (DB + local embedding model) รันใน executor
+                            # กันไม่ให้ event loop ค้าง ไม่งั้นเสียงไมค์ที่กำลังส่งเข้า Gemini จะสะดุดเป็นช่วง ๆ
+                            result_text = await loop.run_in_executor(None, run_retrieval, q)
                             dt = time.perf_counter() - t0
                             logger.info("[TOOL] query=%r retrieval=%.3fs -> %d chars", q, dt, len(result_text))
                             await session.send_tool_response(function_responses=[
@@ -275,24 +298,41 @@ class ConversationSession:
 
             mic_task = asyncio.create_task(mic_to_gemini())
             gemini_task = asyncio.create_task(gemini_to_speaker())
-            done, pending = await asyncio.wait({mic_task, gemini_task}, return_when=asyncio.FIRST_COMPLETED)
-            for t in pending:
-                t.cancel()
-            self.player.stop()
+            try:
+                await asyncio.wait({mic_task, gemini_task}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                # ต้อง cancel+await ทั้งคู่เสมอ แม้ตอน KeyboardInterrupt คั่นกลาง asyncio.wait —
+                # ไม่งั้น task ที่เหลือค้างพยายามส่ง/รับผ่าน session ที่กำลังปิดอยู่ กลายเป็น
+                # "Task exception was never retrieved" ตอนโปรแกรมออก (เจอจริงตอนกด Ctrl+C)
+                for t in (mic_task, gemini_task):
+                    if not t.done():
+                        t.cancel()
+                await asyncio.gather(mic_task, gemini_task, return_exceptions=True)
+                self.player.stop()
             logger.info("[SESSION] ปิดแล้ว")
 
 
 # ---------------------------------------------------------------------------
 # main loop: ฟังหา speech start ตลอดเวลา (นอก session) -> เปิด session -> วนซ้ำ พร้อม reconnect backoff
 # ---------------------------------------------------------------------------
+def _parse_device(value: str) -> int | str | None:
+    """VOICE_MIC_DEVICE/VOICE_SPEAKER_DEVICE รับได้ทั้ง index ตัวเลขหรือส่วนหนึ่งของชื่ออุปกรณ์"""
+    value = value.strip()
+    if not value:
+        return None
+    return int(value) if value.isdigit() else value
+
+
 async def main() -> None:
     if not settings.GEMINI_API_KEY:
         logger.error("ไม่มี GEMINI_API_KEY ใน .env — ใส่ก่อนรัน")
         return
 
     loop = asyncio.get_running_loop()
-    mic = MicSource(loop)
-    player = AudioPlayer(buffer_seconds=settings.AUDIO_OUTPUT_BUFFER_S)
+    mic = MicSource(loop, device=_parse_device(settings.VOICE_MIC_DEVICE))
+    player = AudioPlayer(
+        buffer_seconds=settings.AUDIO_OUTPUT_BUFFER_S, device=_parse_device(settings.VOICE_SPEAKER_DEVICE)
+    )
     vad = Vad(threshold=settings.VAD_SPEECH_THRESHOLD)
     fallback_pcm = ensure_fallback_audio()
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -300,8 +340,9 @@ async def main() -> None:
     mic.start()
     logger.info(
         "พร้อมแล้ว — พูดใส่ไมค์ได้เลย (VAD_SPEECH_THRESHOLD=%.2f, VAD_SILENCE_TIMEOUT_S=%.1f, "
-        "AUDIO_OUTPUT_BUFFER_S=%.1f) Ctrl+C เพื่อหยุด",
-        settings.VAD_SPEECH_THRESHOLD, settings.VAD_SILENCE_TIMEOUT_S, settings.AUDIO_OUTPUT_BUFFER_S,
+        "AUDIO_OUTPUT_BUFFER_S=%.1f, VOICE_BARGE_IN_GRACE_S=%.1f) Ctrl+C เพื่อหยุด",
+        settings.VAD_SPEECH_THRESHOLD, settings.VAD_SILENCE_TIMEOUT_S,
+        settings.AUDIO_OUTPUT_BUFFER_S, settings.VOICE_BARGE_IN_GRACE_S,
     )
 
     backoff = 1.0
