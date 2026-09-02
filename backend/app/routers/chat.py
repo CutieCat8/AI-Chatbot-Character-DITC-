@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.llm.chat import expand_search_terms, get_llm_client
 from app.rag.embedding import get_embedder
-from app.rag.retrieval import keyword_search, search
+from app.rag.retrieval import keyword_search, normalize_query, search
 from app.schemas.chat import ChatRequest, ChatResponse, ChatSourceOut
 
 logger = logging.getLogger("routers.chat")
@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 SYSTEM_PROMPT = (
     "คุณคือ DITC CAT ผู้ช่วยตอบคำถามของศูนย์ DITC และคณะ CAMT มหาวิทยาลัยเชียงใหม่เท่านั้น "
+    "หมายเหตุ: ถ้าได้ยิน/เจอคำว่า \"ITC\" \"ดิติซี\" หรือ \"ดีไอทีซี\" ในคำถาม ให้เข้าใจว่าหมายถึง "
+    "\"DITC\" เสมอ (STT มักถอดเสียง D ตัวแรกของ DITC หายไป) "
     "กำลังคุยด้วยเสียงกับคนที่ยืนอยู่ตรงหน้า ไม่ใช่แชทข้อความที่มีเวลาอ่านเยอะ ๆ — "
     "ตอบสั้น กระชับ เหมือนคนคุยกันจริง ๆ ปกติ 1-3 ประโยคก็พอ "
     "ตอบจาก \"ข้อมูลอ้างอิง\" ที่ให้มาด้านล่างเท่านั้น ห้ามเดาหรือแต่งข้อมูลเพิ่ม "
@@ -49,6 +51,9 @@ def ask(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="question ห้ามว่าง")
+    # normalize ตั้งแต่ต้นทาง (ไม่ใช่แค่ตอนเข้า retrieval) กัน "ITC"/"ดิติซี" ฯลฯ (ที่ STT มักถอดเสียง
+    # DITC ผิด) หลุดไปให้ expand_search_terms เห็นคำผิด ๆ ก่อนที่ LLM จะช่วยแตกคำค้นด้วยซ้ำ
+    question = normalize_query(question)
 
     llm = get_llm_client()
 

@@ -10,6 +10,7 @@ retrieval.py — ค้นชิ้นเนื้อหา (chunk) ที่ใ
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import or_, select
@@ -36,6 +37,27 @@ class RetrievedChunk:
         return 1.0 - self.distance
 
 
+# คำที่ STT มักถอดเสียง "DITC" ผิด (ทดสอบจริงกับ Gemini Live เจอ "DITC" -> "ITC" หาย D ตัวแรก)
+# normalize ก่อนเข้า retrieval ทุกทาง (keyword + vector) กันคำถามเกี่ยวกับศูนย์ DITC หลุด
+_DITC_ALIASES = ("ดิติซี", "ดีไอทีซี", "ดีติซี", "ดิทซี")
+# หมายเหตุ: "ดิจิทัล" (digital เฉย ๆ) ไม่ใส่เป็น alias ตรงนี้ — เป็นคำทั่วไปที่ขึ้นในหลายบริบทจริง
+# (เกมดิจิทัล, เทคโนโลยีดิจิทัล ฯลฯ) ถ้า map เป็น DITC เหมารวมจะเกิด false positive เยอะ
+# (เช่น "อยากเรียนเกมดิจิทัล" จะเพี้ยนเป็นถามเรื่องศูนย์ DITC ไปเลย) ถ้าเจอเคสจริงที่ต้องแก้ค่อยกลับมาคุยกัน
+
+
+def normalize_query(query: str) -> str:
+    """แก้คำที่ STT มักถอดเสียงผิด/เพี้ยนให้เป็นคำที่ตรงกับที่ใช้จริงในฐานความรู้"""
+    normalized = query
+    for alias in _DITC_ALIASES:
+        normalized = normalized.replace(alias, "DITC")
+    # "ITC" โดด ๆ (ไม่ใช่ในคำอังกฤษอื่นที่บังเอิญมี itc อยู่ข้างใน เช่น "stitch") มักเป็น "DITC" ที่หาย D
+    # หมายเหตุ: เช็คแค่ฝั่งตัวอักษรละติน ไม่เช็คฝั่งอักษรไทย เพราะภาษาไทยไม่มีช่องว่างคั่นคำ
+    # ("ITCตั้งอยู่ที่ไหน" ก็ต้องจับได้ — เจอบั๊กนี้จริงตอนทดสอบ)
+    if re.search(r"(?<![A-Za-z])ITC(?![A-Za-z])", normalized) and "DITC" not in normalized:
+        normalized = re.sub(r"(?<![A-Za-z])ITC(?![A-Za-z])", "DITC", normalized)
+    return normalized
+
+
 def search(
     db: Session,
     query: str,
@@ -44,6 +66,7 @@ def search(
     embedder: Embedder | None = None,
 ) -> list[RetrievedChunk]:
     """embed คำถาม แล้วคืน chunk ที่ใกล้ที่สุด top_k อัน (พร้อมข้อมูล document ต้นทาง)"""
+    query = normalize_query(query)
     embedder = embedder or get_embedder()
     query_vector = embedder.embed_one(query)
 
@@ -111,7 +134,9 @@ def keyword_search(
     หรือคำทับศัพท์อังกฤษเท่านั้น — สำหรับคำถามแบบสนทนาให้ส่ง `keywords` ที่ผ่านการ
     ตัดคำอย่างถูกต้องมาก่อน (เช่น ให้ LLM ช่วยแตกคำ ดู app.llm.chat.expand_search_terms)
     """
+    query = normalize_query(query)
     keywords = keywords if keywords is not None else _extract_keywords(query)
+    keywords = [normalize_query(kw) for kw in keywords]
     if not keywords:
         return []
 
