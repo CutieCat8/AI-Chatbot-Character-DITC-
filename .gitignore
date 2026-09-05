@@ -31,6 +31,7 @@ dist/
 build/
 .turbo/
 *.tsbuildinfo
+frontend-character/certs/
 *.log
 npm-debug.log*
 yarn-debug.log*
