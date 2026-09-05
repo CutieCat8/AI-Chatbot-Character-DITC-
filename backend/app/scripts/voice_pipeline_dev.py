@@ -64,6 +64,7 @@ from websockets.exceptions import WebSocketException
 
 from app.config import settings
 from app.routers.voice import MODEL, SEARCH_FUNCTION, SYSTEM_INSTRUCTION, run_retrieval
+from app.services.speech_boundary import BoundaryEvent, SpeechBoundaryTracker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("voice_pipeline_dev")
@@ -259,11 +260,12 @@ class ConversationSession:
 
             async def mic_to_gemini() -> None:
                 nonlocal awaiting_response, last_activity_ts, speech_end_ts
-                was_speech = True  # เพิ่งเปิด session เพราะเจอเสียงพูด ถือว่ากำลังพูดอยู่ (ส่ง activity_start ไปแล้ว)
-                silent_streak = 0
-                # VAD_FRAME_SAMPLES=512 @ 16kHz = 32ms/เฟรม เงียบเฟรมเดียวไม่พอถือว่าจบประโยคจริง
-                # (เว้นวรรค/หายใจกลางคำถามสั้นกว่านี้ได้) ต้อง hangover ~500ms ก่อนส่ง activity_end จริง
-                SILENCE_HANGOVER_FRAMES = 16
+                # ตรรกะ speech_start/end + hangover + reset-on-mute แยกไปเป็น SpeechBoundaryTracker
+                # (app/services/speech_boundary.py) เพื่อให้เทสได้โดยไม่ต้องพึ่งไมค์/Gemini จริง — ดู
+                # tests/test_speech_boundary.py และ docs/adr/voice-multiturn-session-bug.md
+                # initial_speech=True เพราะเพิ่งเปิด session ก็เพราะ VAD เจอเสียงพูดแล้ว (ส่ง
+                # activity_start ไปแล้วก่อนเข้าฟังก์ชันนี้ ดูโค้ดก่อนหน้า)
+                tracker = SpeechBoundaryTracker(hangover_frames=16, initial_speech=True)
                 while True:
                     frame = await self.mic.queue.get()
 
@@ -272,42 +274,31 @@ class ConversationSession:
                     # คุยกันรอบข้างหน้างาน) หลอกเป็นบาร์จอินซ้ำซาก (พิสูจน์แล้วจาก log จริงว่าตัด
                     # คำตอบกลางคันทุกครั้ง) — ปิดไมค์สนิทตอนแมวกำลังพูด เปิดฟังใหม่ทันทีที่เสียงเล่นจบจริง
                     if self.player.is_playing():
-                        # กันเผื่อ was_speech ค้าง True ข้ามช่วง mute (ไม่ควรเกิดในสถาปัตยกรรมปัจจุบัน
-                        # เพราะ activity_end ถูกส่งไปก่อน awaiting_response จะตั้งค่าเสมอ แต่ถ้าตรรกะ
-                        # ด้านบนเปลี่ยนในอนาคตแล้วพลาดจุดนี้ไป จะกลายเป็นบั๊ก "คุยได้แค่รอบเดียว" แบบ
-                        # เดียวกับที่เจอใน useVoiceSocket.ts จึงกันไว้เป็น safety net)
-                        if was_speech:
+                        if tracker.on_muted() is BoundaryEvent.END:
                             await session.send_realtime_input(activity_end=types.ActivityEnd())
-                            was_speech = False
-                        silent_streak = 0
                         continue
 
                     is_speech = self.vad.is_speech(frame)
 
-                    # AAD ปิดแล้ว ต้องบอก Gemini เองว่า "เริ่มพูดรอบใหม่" ทุกครั้งที่ผ่านช่วงเงียบ/mute
-                    # มา (ไม่ใช่แค่ตอนเปิด session ครั้งแรก) — จุดนี้แหละที่แก้บั๊ก "คุยได้แค่รอบเดียว"
-                    if is_speech and not was_speech:
+                    # AAD ปิดแล้ว ต้องบอก Gemini เองว่า "เริ่มพูดรอบใหม่"/"พูดจบแล้ว" ทุกครั้งที่ผ่าน
+                    # ขอบเขตเงียบ<->พูด (ไม่ใช่แค่ตอนเปิด session ครั้งแรก) — จุดนี้แหละที่แก้บั๊ก
+                    # "คุยได้แค่รอบเดียว"
+                    event = tracker.on_frame(is_speech)
+                    if event is BoundaryEvent.START:
                         await session.send_realtime_input(activity_start=types.ActivityStart())
-                        was_speech = True
-                        silent_streak = 0
+                    elif event is BoundaryEvent.END:
+                        await session.send_realtime_input(activity_end=types.ActivityEnd())
+                        speech_end_ts = time.time()
+                        awaiting_response = True
+                        logger.info("[VAD] พูดจบ รอคำตอบ...")
 
                     if is_speech:
-                        silent_streak = 0
                         last_activity_ts = time.time()
                         speech_end_ts = None
-                    elif was_speech:
-                        silent_streak += 1
-                        if silent_streak >= SILENCE_HANGOVER_FRAMES:
-                            await session.send_realtime_input(activity_end=types.ActivityEnd())
-                            was_speech = False
-                            silent_streak = 0
-                            speech_end_ts = time.time()
-                            awaiting_response = True
-                            logger.info("[VAD] พูดจบ รอคำตอบ...")
 
                     # ส่งเฉพาะช่วงที่ยังถือว่าอยู่ในประโยคเดียวกัน (รวม hangover ที่ยังไม่ยืนยันว่าจบ)
                     # เหมือน useVoiceSocket.ts — Gemini (AAD ปิดแล้ว) สนใจแค่เสียงในช่วง activity เท่านั้น
-                    if was_speech:
+                    if tracker.in_utterance:
                         await session.send_realtime_input(audio=types.Blob(data=frame, mime_type="audio/pcm;rate=16000"))
 
                     # เงียบเกิน timeout และไม่ได้รอคำตอบอยู่ (ไม่ใช่แค่เงียบระหว่างรอ Gemini คิด) -> ปิด session
