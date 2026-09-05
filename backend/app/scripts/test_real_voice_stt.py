@@ -79,9 +79,10 @@ async def transcribe(client: genai.Client, pcm_bytes: bytes, use_vocab: bool) ->
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         input_audio_transcription=types.AudioTranscriptionConfig(
-            # ล็อกภาษาเป็นไทย ไม่ปล่อย auto-detect — เจอจริงว่าไฟล์หนึ่ง (เงียบเหมือนกันทุกไฟล์) ถูก
-            # เดาเป็นภาษาอินโดนีเซียทั้งประโยคโดยไม่มีเหตุผล ถ้าไม่ล็อกจะพังทั้งประโยคแบบสุ่มได้อีก
-            language_codes=["th-TH"],
+            # จำกัด hint เหลือแค่ไทย/อังกฤษ (ไม่ล็อกเดี่ยว th-TH — ผิดสโคป TOR ต้องรองรับ 2 ภาษา
+            # auto-detect ดู CLAUDE.md) แต่ไม่ปล่อย auto-detect เปิดกว้างทุกภาษาเหมือนไม่ตั้งอะไรเลย
+            # เพราะเจอจริงว่าไฟล์หนึ่ง (เงียบเหมือนกันทุกไฟล์) ถูกเดาเป็นภาษาอินโดนีเซียทั้งประโยค
+            language_codes=["th-TH", "en-US"],
             custom_vocabulary=CUSTOM_VOCABULARY if use_vocab else None,
         ),
     )
@@ -133,7 +134,7 @@ async def main() -> None:
 
     print(
         f"เจอ {len(files)} ไฟล์ — custom_vocabulary={'เปิด' if use_vocab else 'ปิด'}, "
-        f"language_codes=['th-TH'] (ล็อกเสมอ) — แต่ละไฟล์ยิง API จริง อาจใช้เวลาไฟล์ละ ~5-30 วิ",
+        f"language_codes=['th-TH','en-US'] (เสมอ) — แต่ละไฟล์ยิง API จริง อาจใช้เวลาไฟล์ละ ~5-30 วิ",
         flush=True,
     )
 

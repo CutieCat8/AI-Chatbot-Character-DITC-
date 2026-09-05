@@ -213,10 +213,12 @@ class ConversationSession:
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             output_audio_transcription=types.AudioTranscriptionConfig(),
-            # ล็อกภาษาเป็นไทย ไม่ปล่อย auto-detect — ทดสอบจริงกับไฟล์เสียงคนจริง (2026-09-06) เจอ 1
-            # ไฟล์ (เงียบสนิทเหมือนไฟล์อื่น ไม่มีเหตุผลชัดเจน) ที่ auto-detect เดาเป็นภาษาอินโดนีเซีย
-            # ทั้งประโยค พอล็อก th-TH แล้วถอดถูกสมบูรณ์ทันที ดู docs/adr/voice-stt-real-world-test.md
-            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH"]),
+            # จำกัดภาษาให้เดาแค่ไทย/อังกฤษ ไม่ปล่อย auto-detect เปิดกว้างทุกภาษา — ทดสอบจริงกับไฟล์
+            # เสียงคนจริง (2026-09-06) เจอ 1 ไฟล์ (เงียบสนิทเหมือนไฟล์อื่น ไม่มีเหตุผลชัดเจน) ที่
+            # auto-detect แบบเปิดกว้างเดาเป็นภาษาอินโดนีเซียทั้งประโยค — แก้โดยจำกัด hint ให้เหลือแค่
+            # ["th-TH", "en-US"] แทนที่จะล็อกเดี่ยว th-TH (ผิดสโคป — TOR ต้องรองรับ 2 ภาษาตรวจจับ
+            # อัตโนมัติ ดู CLAUDE.md) ยังกันบั๊กเดิมได้เหมือนกันเพราะไม่เปิดกว้างสุ่มไปทุกภาษาอีกต่อไป
+            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH", "en-US"]),
             system_instruction=SYSTEM_INSTRUCTION,
             tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
         )

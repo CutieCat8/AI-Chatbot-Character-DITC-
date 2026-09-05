@@ -43,7 +43,7 @@ async def run_one(client: genai.Client, pcm_bytes: bytes) -> tuple[str, list[str
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         output_audio_transcription=types.AudioTranscriptionConfig(),
-        input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH"]),
+        input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH", "en-US"]),
         system_instruction=SYSTEM_INSTRUCTION,
         tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
     )
