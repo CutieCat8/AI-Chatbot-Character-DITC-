@@ -8,8 +8,15 @@ const LOCAL_VAD_RMS_THRESHOLD = 0.02; // ใช้แค่ขยับ cat stat
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
 
 // backend รันคนละ origin กับหน้านี้ (5174 vs 8000) ต่อ WS ตรง ๆ ได้เลย ไม่ติด CORS (WS ไม่ผ่าน
-// browser CORS preflight เหมือน HTTP ปกติ และ routers/voice.py ก็ไม่เช็ค origin อยู่แล้ว)
-const WS_URL = import.meta.env.VITE_VOICE_WS_URL ?? "ws://localhost:8000/api/voice/ws";
+// browser CORS preflight เหมือน HTTP ปกติ — ยืนยันจาก source ของ Starlette CORSMiddleware ตรง ๆ
+// (`if scope["type"] != "http": ปล่อยผ่านเลย`) และ routers/voice.py ก็ไม่เช็ค origin เองอยู่แล้ว)
+//
+// ห้าม hardcode "localhost" ตรงนี้ — ใช้ไม่ได้เลยตอนเปิดจากแท็บเล็ตจริงผ่าน LAN เพราะ "localhost"
+// จากมุมมองแท็บเล็ตหมายถึงตัวแท็บเล็ตเอง ไม่ใช่เครื่อง backend เดา default จาก hostname ของหน้านี้แทน
+// (ครอบคลุมเคสที่พบบ่อยสุด: เครื่องเดียวรัน backend+frontend ทั้งคู่ แท็บเล็ตเข้าผ่าน IP เดียวกัน)
+// ถ้า backend อยู่คนละเครื่องจริง ๆ ให้ตั้ง VITE_VOICE_WS_URL ตอน build/dev แทน (ดู README)
+const wsProtocol = location.protocol === "https:" ? "wss" : "ws";
+const WS_URL = import.meta.env.VITE_VOICE_WS_URL ?? `${wsProtocol}://${location.hostname}:8000/api/voice/ws`;
 
 export type VoiceConnectionState = "idle" | "connecting" | "connected" | "error" | "closed";
 
@@ -120,6 +127,10 @@ export function useVoiceSocket(): UseVoiceSocketResult {
 
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
+    // มือถือ (Android Chrome รวมถึง Safari) เข้มงวดเรื่อง autoplay กว่า desktop บางรุ่น AudioContext
+    // ที่สร้างใหม่อาจเริ่มที่ state "suspended" แม้จะสร้างระหว่าง user gesture (คลิกปุ่ม "เริ่มคุย")
+    // ก็ตาม — resume() ตรงนี้ (ยังอยู่ในเส้นทางเดียวกับ gesture handler) ชัวร์กว่าปล่อยเดา
+    void audioCtx.resume();
     nextPlayTimeRef.current = 0;
     playbackBufferedMsRef.current = 0;
     playbackStartedRef.current = false;
