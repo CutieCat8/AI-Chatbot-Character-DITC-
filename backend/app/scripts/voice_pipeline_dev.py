@@ -8,27 +8,30 @@ voice_pipeline_dev.py — วงจรเสียงเต็มรูปแบ
   ไมค์ (sounddevice, 16kHz PCM16 mono, เฟรมละ 32ms) --เข้าคิว asyncio--> ตรวจ VAD (silero, ต่อเนื่องทุกเฟรม)
     - เงียบอยู่ ไม่มี session: แค่เก็บ pre-roll buffer สั้น ๆ รอฟังจนกว่าจะเจอเสียงพูด
     - เจอเสียงพูดเริ่ม (silence -> speech): เปิด Gemini Live session ใหม่ ส่ง pre-roll + เสียงต่อเนื่องเข้าไป
-    - อยู่ใน session: ส่งเสียงไมค์เข้า Gemini ต่อเนื่องเสมอ (ให้ AAD ของ Gemini เองจัดการ turn/barge-in)
-      ขนานกับ track เวลาเงียบต่อเนื่องฝั่งเรา (นับเฉพาะตอนไม่ได้รอคำตอบอยู่) เพื่อปิด session เอง
+    - อยู่ใน session ระหว่างที่ผู้ใช้พูด (แมวไม่ได้พูดอยู่): ส่งเสียงไมค์เข้า Gemini ต่อเนื่อง ให้ AAD ของ
+      Gemini เองจัดการจับจบประโยค ขนานกับ track เวลาเงียบต่อเนื่องฝั่งเรา (นับเฉพาะตอนไม่ได้รอคำตอบอยู่)
+      เพื่อปิด session เอง
+    - ระหว่างแมวกำลังพูด (player.is_playing()): **ปิดไมค์สนิท ไม่ส่งเข้า Gemini เลย** (half-duplex โดย
+      ตั้งใจ — ดูหมายเหตุด้านล่าง) เปิดฟังใหม่ทันทีที่เสียงเล่นจบจริง
   Gemini Live --tool_call--> เรียก retrieval.py เดิม (เหมือน routers/voice.py) ส่งผลกลับ
   Gemini Live --audio (24kHz PCM16 mono)--> เข้าคิวเล่นเสียง บัฟไว้ AUDIO_OUTPUT_BUFFER_S วิ ก่อนเริ่มเล่น
-    - ได้สัญญาณ interrupted (ผู้ใช้พูดแทรก) --> เคลียร์บัฟ+หยุดเล่นทันที (บาร์จอิน)
   หลุดการเชื่อมต่อ --> เล่นประโยคสำรอง (แคชไว้ล่วงหน้า ไม่ง้อ Gemini) แล้ว reconnect แบบ backoff
 
 รัน: cd backend && .venv/Scripts/python -m app.scripts.voice_pipeline_dev
 กด Ctrl+C เพื่อหยุด (ปิด session/stream ให้เรียบร้อยก่อนออก)
 
 ปรับพฤติกรรมได้ผ่าน .env: VAD_SPEECH_THRESHOLD, VAD_SILENCE_TIMEOUT_S, AUDIO_OUTPUT_BUFFER_S,
-VOICE_RECONNECT_MAX_BACKOFF_S, VOICE_BARGE_IN_GRACE_S, VOICE_MIC_DEVICE, VOICE_SPEAKER_DEVICE (ดู app/config.py)
+VOICE_RECONNECT_MAX_BACKOFF_S, VOICE_MIC_DEVICE, VOICE_SPEAKER_DEVICE (ดู app/config.py)
 
-หมายเหตุ (เจอจริงตอนทดสอบครั้งแรก): เครื่อง dev ที่ไม่มี AEC (ไมค์/ลำโพงบนเครื่องเดียวกัน ไม่ใส่หูฟัง)
-เสียงลำโพงจะหลุดเข้าไมค์แล้วโดน Gemini ตีความว่าผู้ใช้พูดแทรกเองได้ (false barge-in) — ยืนยันจาก log จริง
-ว่าเป็นเสียงสะท้อนไม่ใช่คนพูดจริง เพราะ input_transcription ตอนนั้นไม่มีคำใหม่เพิ่มเข้ามาเลย
-แก้หลักที่ config `automatic_activity_detection` (start_of_speech_sensitivity=LOW, prefix_padding_ms=400)
-ให้ Gemini เองต้องเจอเสียงพูดต่อเนื่อง ~400ms ก่อนนับเป็นการพูด — เสียงสะท้อนสั้น ๆ ผ่านเกณฑ์นี้ไม่ได้
-ส่วน VOICE_BARGE_IN_GRACE_S เป็นเกราะชั้นที่สองฝั่งเรา (กันกรณีหลุดผ่านมาได้) ทางที่ดีที่สุดคือใส่หูฟัง
-หรือเลือกอุปกรณ์ไมค์ที่มี noise-cancelling ผ่าน VOICE_MIC_DEVICE ถ้าเครื่องมี (เช็คชื่อได้ด้วย
-`python -c "import sounddevice as sd; print(sd.query_devices())"`)
+หมายเหตุ — ทำไมเป็น half-duplex (ไม่รับฟังพูดแทรกระหว่างแมวพูด) โดยตั้งใจ (ตัดสินใจร่วมกับทีม 2026-09-05):
+ทดสอบจริงพบว่าเครื่อง dev (ไมค์/ลำโพงเครื่องเดียวกัน ไม่มี AEC ฮาร์ดแวร์) เสียงลำโพงหลุดเข้าไมค์แล้วโดน
+Gemini ตีความว่าผู้ใช้พูดแทรกเองซ้ำ ๆ ตัดคำตอบกลางคันทุกครั้ง (ยืนยันด้วยหูฟัง: ใส่หูฟังแล้วปัญหาหายสนิท
+เป็น echo จริง ไม่ใช่บั๊กโค้ด) เคยลองแก้ด้วย config `automatic_activity_detection` ของ Gemini เองแล้วไม่ได้ผล
+เพราะเสียงสะท้อนคือคำตอบทั้งประโยคของแมวเอง ยาว/ต่อเนื่องเหมือนคนพูดจริงทุกประการ แยกด้วยความยาว/
+ความต่อเนื่องไม่ได้ในหลักการ — และต่อให้แก้ echo ได้ หน้าบูธจริงก็มีเสียงคนคุยกันรอบข้างซึ่งเป็นปัญหาคลาส
+เดียวกัน (เสียงอื่นเข้าไมค์ระหว่างเล่นเสียงออก) จึงเลือก mute ไมค์ระหว่างแมวพูดแทน ปลอดภัยกว่าจริงสำหรับ
+งานหน้าบูธที่มีเสียงดัง คำตอบสั้นอยู่แล้ว (1-3 ประโยค) ต้นทุนรอให้พูดจบต่ำ — ถ้าต่อไปมีไมค์ hardware AEC/
+directional มายืนยันว่าใช้ได้จริง ค่อยกลับมาเปิด full-duplex ใหม่ได้
 """
 from __future__ import annotations
 
@@ -124,7 +127,10 @@ class AudioPlayer:
         self._stream: sd.RawOutputStream | None = None
         self.on_first_frame_played: Callable[[], None] | None = None  # เรียกครั้งเดียวตอนเริ่มเล่นจริง (วัด latency)
         self._fired_first_frame = False
-        self.turn_started_at: float | None = None  # ตอนเริ่มเล่นเสียงของ turn ปัจจุบัน ใช้กัน false barge-in
+        # เวลาล่าสุดที่ยังมีเสียงจริง (ไม่ใช่ silence padding) ออกลำโพงอยู่ — ใช้เป็นสัญญาณ half-duplex
+        # (ปิดไมค์ตอนแมวพูด) แม่นยำกว่าอิงจาก turn_complete message เพราะเราบัฟเฟอร์เสียงไว้ล่วงหน้า
+        # เสียงอาจยังเล่นค้างอยู่จริงหลัง Gemini ส่ง turn_complete มาแล้วก็ได้
+        self._last_audio_ts = 0.0
 
     def feed(self, data: bytes) -> None:
         with self._lock:
@@ -141,18 +147,24 @@ class AudioPlayer:
         if len(chunk) < nbytes:
             chunk += b"\x00" * (nbytes - len(chunk))
         outdata[:] = chunk
-        if not self._fired_first_frame and any(chunk):
-            self._fired_first_frame = True
-            if self.on_first_frame_played:
-                self.on_first_frame_played()
+        if any(chunk):
+            self._last_audio_ts = time.time()
+            if not self._fired_first_frame:
+                self._fired_first_frame = True
+                if self.on_first_frame_played:
+                    self.on_first_frame_played()
 
     def _start_stream(self) -> None:
         self._fired_first_frame = False
-        self.turn_started_at = time.time()
+        self._last_audio_ts = time.time()  # กันช่วงสั้น ๆ ก่อน callback แรกทำงานจริง
         self._stream = sd.RawOutputStream(
             samplerate=OUTPUT_RATE, channels=1, dtype="int16", device=self._device, callback=self._callback,
         )
         self._stream.start()
+
+    def is_playing(self, grace_s: float = 0.3) -> bool:
+        """ยังมีเสียงจริงออกลำโพงอยู่ไหม (รวม grace เผื่อช่วงสั้น ๆ ที่บัฟเฟอร์ underrun ชั่วคราว)"""
+        return self._stream is not None and (time.time() - self._last_audio_ts) < grace_s
 
     def play_fallback_blocking(self, pcm: bytes) -> None:
         """เล่นประโยคสำรองแบบ blocking สั้น ๆ ตอน reconnect (ไม่ต้องผ่านคิว/บัฟเฟอร์ปกติ)"""
@@ -160,14 +172,13 @@ class AudioPlayer:
         sd.play(np.frombuffer(pcm, dtype=np.int16), samplerate=OUTPUT_RATE, device=self._device, blocking=True)
 
     def stop(self) -> None:
-        """เคลียร์บัฟ+หยุดเล่นทันที — ใช้ตอนบาร์จอินหรือจบ session"""
+        """เคลียร์บัฟ+หยุดเล่นทันที — ใช้ตอนจบ session/reconnect"""
         with self._lock:
             self._buf.clear()
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
             self._stream = None
-        self.turn_started_at = None
 
 
 # ---------------------------------------------------------------------------
@@ -205,16 +216,6 @@ class ConversationSession:
             input_audio_transcription=types.AudioTranscriptionConfig(),
             system_instruction=SYSTEM_INSTRUCTION,
             tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
-            # ตัวจริงที่แก้ false barge-in ได้ตรงจุด (ดีกว่าเดา grace window ฝั่งเรา เพราะดีเลย์ของ
-            # เสียงสะท้อนจากลำโพงเข้าไมค์ไม่คงที่): บังคับให้ Gemini เองต้องเจอเสียงพูดต่อเนื่องอย่างน้อย
-            # ~400ms ก่อนถึงจะนับเป็น "เริ่มพูด" — เสียงสะท้อนสั้น ๆ ไม่ต่อเนื่องพอจะผ่านเกณฑ์นี้
-            # ส่วนคนพูดแทรกจริงจะพูดต่อเนื่องเกิน 400ms อยู่แล้ว ไม่กระทบ barge-in จริง
-            realtime_input_config=types.RealtimeInputConfig(
-                automatic_activity_detection=types.AutomaticActivityDetection(
-                    start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
-                    prefix_padding_ms=400,
-                ),
-            ),
         )
 
         awaiting_response = False
@@ -234,12 +235,18 @@ class ConversationSession:
                 was_speech = True  # เพิ่งเปิด session เพราะเจอเสียงพูด ถือว่ากำลังพูดอยู่
                 while True:
                     frame = await self.mic.queue.get()
+
+                    # Half-duplex โดยตั้งใจ: เครื่อง dev (และหน้าบูธจริง) ไม่มี AEC ฮาร์ดแวร์ยืนยันแล้ว
+                    # ถ้าส่งเสียงไมค์เข้า Gemini ต่อระหว่างแมวพูด จะโดนเสียงสะท้อนของตัวเอง (หรือเสียงคน
+                    # คุยกันรอบข้างหน้างาน) หลอกเป็นบาร์จอินซ้ำซาก (พิสูจน์แล้วจาก log จริงว่าตัด
+                    # คำตอบกลางคันทุกครั้ง) — ปิดไมค์สนิทตอนแมวกำลังพูด เปิดฟังใหม่ทันทีที่เสียงเล่นจบจริง
+                    if self.player.is_playing():
+                        continue
+
                     is_speech = self.vad.is_speech(frame)
                     await session.send_realtime_input(audio=types.Blob(data=frame, mime_type="audio/pcm;rate=16000"))
 
                     if is_speech:
-                        # ถ้าผู้ใช้พูดแทรกตอนแมวกำลังพูด ปล่อยให้ Gemini เป็นคนส่ง interrupted กลับมาเอง
-                        # (จัดการหยุดเล่นเสียงใน gemini_to_speaker) ฝั่งนี้แค่ track เวลาไว้เฉย ๆ
                         last_activity_ts = time.time()
                         speech_end_ts = None
                     elif was_speech and not is_speech:
@@ -258,21 +265,6 @@ class ConversationSession:
                 nonlocal awaiting_response, last_activity_ts, turn_user_text, turn_cat_text
                 loop = asyncio.get_running_loop()
                 async for response in session.receive():
-                    if response.server_content and response.server_content.interrupted:
-                        started_at = self.player.turn_started_at
-                        # เครื่อง dev ไม่มี AEC — เสียงลำโพงเองมักหลุดเข้าไมค์แล้วโดน Gemini ตีความว่า
-                        # ผู้ใช้พูดแทรก โดยเฉพาะช่วงแรกที่เพิ่งเริ่มเล่น (คนจริงพูดแทรกเร็วขนาดนั้นไม่ได้)
-                        # เพิกเฉยสัญญาณนี้ถ้ามาไวเกินไปหลังเริ่มเล่น
-                        if started_at is not None and time.time() - started_at < settings.VOICE_BARGE_IN_GRACE_S:
-                            logger.info(
-                                "[BARGE-IN] เพิกเฉย (มาไวกว่า %.1fs หลังเริ่มเล่น น่าจะเป็นเสียงลำโพงเข้าไมค์เอง)",
-                                settings.VOICE_BARGE_IN_GRACE_S,
-                            )
-                        else:
-                            logger.info("[BARGE-IN] ผู้ใช้พูดแทรก -> หยุดเล่นเสียงทันที")
-                            self.player.stop()
-                            awaiting_response = False
-
                     if response.tool_call:
                         for fc in response.tool_call.function_calls:
                             q = fc.args.get("query", "")
@@ -352,10 +344,9 @@ async def main() -> None:
 
     mic.start()
     logger.info(
-        "พร้อมแล้ว — พูดใส่ไมค์ได้เลย (VAD_SPEECH_THRESHOLD=%.2f, VAD_SILENCE_TIMEOUT_S=%.1f, "
-        "AUDIO_OUTPUT_BUFFER_S=%.1f, VOICE_BARGE_IN_GRACE_S=%.1f) Ctrl+C เพื่อหยุด",
-        settings.VAD_SPEECH_THRESHOLD, settings.VAD_SILENCE_TIMEOUT_S,
-        settings.AUDIO_OUTPUT_BUFFER_S, settings.VOICE_BARGE_IN_GRACE_S,
+        "พร้อมแล้ว (half-duplex — ไมค์จะปิดตอนแมวพูด) — พูดใส่ไมค์ได้เลย "
+        "(VAD_SPEECH_THRESHOLD=%.2f, VAD_SILENCE_TIMEOUT_S=%.1f, AUDIO_OUTPUT_BUFFER_S=%.1f) Ctrl+C เพื่อหยุด",
+        settings.VAD_SPEECH_THRESHOLD, settings.VAD_SILENCE_TIMEOUT_S, settings.AUDIO_OUTPUT_BUFFER_S,
     )
 
     backoff = 1.0
