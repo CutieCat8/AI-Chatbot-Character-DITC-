@@ -213,7 +213,10 @@ class ConversationSession:
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             output_audio_transcription=types.AudioTranscriptionConfig(),
-            input_audio_transcription=types.AudioTranscriptionConfig(),
+            # ล็อกภาษาเป็นไทย ไม่ปล่อย auto-detect — ทดสอบจริงกับไฟล์เสียงคนจริง (2026-09-06) เจอ 1
+            # ไฟล์ (เงียบสนิทเหมือนไฟล์อื่น ไม่มีเหตุผลชัดเจน) ที่ auto-detect เดาเป็นภาษาอินโดนีเซีย
+            # ทั้งประโยค พอล็อก th-TH แล้วถอดถูกสมบูรณ์ทันที ดู docs/adr/voice-stt-real-world-test.md
+            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH"]),
             system_instruction=SYSTEM_INSTRUCTION,
             tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
         )

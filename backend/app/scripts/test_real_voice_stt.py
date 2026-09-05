@@ -2,38 +2,68 @@
 test_real_voice_stt.py — ทดสอบข้อ (ก) ด้วยเสียงคนจริง (ไม่ใช่ TTS สังเคราะห์เหมือนรอบก่อน)
 
 เตรียมไฟล์เสียงตามนี้ก่อนรัน:
-  1. อัดเสียงจริงจากคนในทีม 3 คน คนละ 5 ประโยค (ใช้ประโยคชุดเดียวกับที่เคยเทสด้วย TTS
-     เพื่อเทียบผลตรง ๆ ได้ — มีคำว่า CAMT, DITC, SE, DII, DTM) ใน 2 สภาพ: ห้องเงียบ / โถงมีคนคุย
-     ยืนห่างไมค์ ~1 เมตร (จำลองระยะจริงหน้าตู้)
-  2. เซฟไฟล์เป็น .wav หรือ .m4a ก็ได้ (สคริปต์แปลงให้เอง) ตั้งชื่อไฟล์ตามรูปแบบ:
-     <คนที่>_<สภาพ>_<ข้อที่>.wav  เช่น person1_quiet_1.wav, person1_noisy_1.wav
+  1. อัดเสียงจริงจากคนในทีม คนละ 5 ประโยค (มีคำว่า CAMT, DITC, SE, DII, MMIT) ใน 2 สภาพ:
+     ห้องเงียบ / มีเสียงรอบข้าง ยืนห่างไมค์ ~1 เมตร (จำลองระยะจริงหน้าตู้)
+  2. เซฟไฟล์เป็น .wav หรือ .m4a ก็ได้ (สคริปต์แปลงให้เอง) ตั้งชื่อไฟล์ให้มีคำว่า "personN" และ
+     "qstnN" อยู่ในชื่อ (คั่นด้วย "_" หรือ "-" ก็ได้) เช่น person1-qstn1-quiet.m4a, person2_qstn3_noisy.wav
      วางไว้ในโฟลเดอร์ real_voice_samples/ (สร้างเองข้าง ๆ สคริปต์นี้ ไม่ต้อง commit เข้า git)
-  3. รัน: cd backend && .venv/Scripts/python -m app.scripts.test_real_voice_stt
+  3. รัน: cd backend && .venv/Scripts/python -m app.scripts.test_real_voice_stt [--vocab]
 
-ผลลัพธ์ไปที่ backend/real_voice_result.txt — เทียบ recall ต่อคนต่อสภาพ ต่างจากรอบ TTS
+--vocab เปิด custom_vocabulary priming (ทดลองแก้ STT ที่ต้นเหตุ ก่อนจะพิจารณา alias หลัง retrieval)
+ผลลัพธ์ไปที่ backend/real_voice_result[_vocab].txt
+
+หมายเหตุสำคัญเรื่องเกณฑ์ตัดสิน "ถูก/ผิด" (แก้บั๊กจริงที่เจอ 2026-09-06): STT ถอดคำเป็นอักษรไทยตาม
+เสียงที่พูดจริงไม่ใช่ความผิดพลาด — เช่น "CAMT" พูดออกเสียงเป็น "แคมป์" จริง ถอดมาแบบนั้นคือถูกต้อง
+ต่างจาก "Disney"/"DC" ที่ฟังผิดคำไปเลย (ไม่ใช่การถอดเสียงข้ามสคริปต์ที่สมเหตุสมผล) ACCEPTED_TRANSLATIONS
+ด้านล่างแยกสองกรณีนี้ชัดเจน — รายการของ DITC ใช้ตัวเดียวกับ `_DITC_ALIASES` ใน rag/retrieval.py
+(single source of truth เดียวกับที่ normalize_query() ใช้จริงตอน production)
 """
 from __future__ import annotations
 
 import asyncio
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 from google import genai
 from google.genai import types
 
 from app.config import settings
+from app.rag.retrieval import _DITC_ALIASES
+
+# คอนโซล Windows บางแบบ (เช่น codepage cp874 เริ่มต้นของ Git Bash) เข้ารหัส Unicode เช่น ✓/✗ ไม่ได้
+# แล้ว print() จะ crash ทั้งโปรแกรมทันที — reconfigure ให้ทนกว่านั้น (แทนที่ตัวที่เข้ารหัสไม่ได้แทนที่จะพัง)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 MODEL = "gemini-3.1-flash-live-preview"
 SAMPLES_DIR = Path(__file__).parent / "real_voice_samples"
 
-# ต้องตรงกับชุดที่ทดสอบรอบ TTS (spike_gemini_live_audio_in.py) เพื่อเทียบผลได้ตรง ๆ
+# key = เลขข้อ, value = คำ "ตัวแทน" สำหรับแสดงผล/priming (ไม่ใช่ตัวเช็คคำตอบ — ดู ACCEPTED_TRANSLATIONS)
+# แก้ข้อ 5 จาก DTM เดิมเป็น MMIT 2026-09-05: DTM เป็นปริญญาโท ผู้ใช้หน้าตู้ส่วนใหญ่สนใจปริญญาตรี
+# MMIT (ปริญญาตรี) จึงสะท้อนคำถามจริงหน้างานมากกว่า
 EXPECTED_KEYWORDS = {
     1: ["CAMT"],
     2: ["DITC"],
     3: ["SE"],
     4: ["DII"],
-    5: ["DTM"],
+    5: ["MMIT"],
 }
+
+# คำตอบที่ "ถูกต้องจริง" ของแต่ละข้อ รวมการถอดเสียงข้ามสคริปต์ที่สมเหตุสมผล (ไม่ใช่ทุกคำที่ต่างจาก
+# ตัวคำหลักถือว่าผิด — ต้องแยกจาก "ฟังผิดคำ" เช่น Disney/DC ซึ่งไม่อยู่ในลิสต์นี้โดยตั้งใจ)
+ACCEPTED_TRANSLATIONS = {
+    "CAMT": ["CAMT", "แคมป์"],
+    "DITC": ["DITC", *_DITC_ALIASES],
+    "SE": ["SE"],
+    "DII": ["DII"],
+    "MMIT": ["MMIT"],
+}
+
+CUSTOM_VOCABULARY = ["CAMT", "DITC", "SE", "DII", "MMIT"]
+
+_QSTN_RE = re.compile(r"qstn0*(\d+)", re.IGNORECASE)
 
 
 def to_pcm16k(path: Path) -> bytes:
@@ -45,10 +75,15 @@ def to_pcm16k(path: Path) -> bytes:
     return out_path.read_bytes()
 
 
-async def transcribe(client: genai.Client, pcm_bytes: bytes) -> str:
+async def transcribe(client: genai.Client, pcm_bytes: bytes, use_vocab: bool) -> str:
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        input_audio_transcription=types.AudioTranscriptionConfig(),
+        input_audio_transcription=types.AudioTranscriptionConfig(
+            # ล็อกภาษาเป็นไทย ไม่ปล่อย auto-detect — เจอจริงว่าไฟล์หนึ่ง (เงียบเหมือนกันทุกไฟล์) ถูก
+            # เดาเป็นภาษาอินโดนีเซียทั้งประโยคโดยไม่มีเหตุผล ถ้าไม่ล็อกจะพังทั้งประโยคแบบสุ่มได้อีก
+            language_codes=["th-TH"],
+            custom_vocabulary=CUSTOM_VOCABULARY if use_vocab else None,
+        ),
     )
     heard = ""
 
@@ -78,6 +113,8 @@ async def transcribe(client: genai.Client, pcm_bytes: bytes) -> str:
 
 
 async def main() -> None:
+    use_vocab = "--vocab" in sys.argv
+
     if not SAMPLES_DIR.exists():
         print(f"ไม่พบโฟลเดอร์ {SAMPLES_DIR} — สร้างแล้ววางไฟล์เสียงตามคำอธิบายบนสุดของไฟล์นี้ก่อน")
         return
@@ -88,30 +125,49 @@ async def main() -> None:
         return
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    suffix = "_vocab" if use_vocab else ""
+    result_path = Path(__file__).parent.parent.parent / f"real_voice_result{suffix}.txt"
     out: list[str] = []
     total = 0
     hits = 0
 
-    for f in files:
-        # คาดหวังชื่อไฟล์แบบ person1_quiet_1.wav
-        stem_parts = f.stem.split("_")
-        idx = int(stem_parts[-1]) if stem_parts[-1].isdigit() else None
-        expected = EXPECTED_KEYWORDS.get(idx, [])
+    print(
+        f"เจอ {len(files)} ไฟล์ — custom_vocabulary={'เปิด' if use_vocab else 'ปิด'}, "
+        f"language_codes=['th-TH'] (ล็อกเสมอ) — แต่ละไฟล์ยิง API จริง อาจใช้เวลาไฟล์ละ ~5-30 วิ",
+        flush=True,
+    )
 
+    for i, f in enumerate(files, 1):
+        # รองรับทั้ง person1_quiet_1.wav และ person1-qstn1-quiet.m4a (จับเลขข้อจาก "qstnN" ในชื่อไฟล์
+        # ก่อน ถ้าไม่เจอค่อย fallback ไปจับเลขท้ายสุดของชื่อไฟล์แบบเดิม)
+        m = _QSTN_RE.search(f.stem)
+        if m:
+            idx = int(m.group(1))
+        else:
+            stem_parts = f.stem.split("_")
+            idx = int(stem_parts[-1]) if stem_parts[-1].isdigit() else None
+        expected_kw = EXPECTED_KEYWORDS.get(idx, [None])[0]
+        accepted = ACCEPTED_TRANSLATIONS.get(expected_kw, [])
+        if idx is None:
+            print(f"เตือน: จับเลขข้อจากชื่อไฟล์ {f.name!r} ไม่ได้ — ข้ามการเทียบคำตอบ", flush=True)
+
+        print(f"[{i}/{len(files)}] กำลังทดสอบ {f.name} ...", end=" ", flush=True)
         pcm = to_pcm16k(f)
-        heard = await transcribe(client, pcm)
-        found = bool(expected) and any(kw in heard for kw in expected)
+        heard = await transcribe(client, pcm, use_vocab)
+        found = bool(accepted) and any(alt in heard for alt in accepted)
         total += 1
         hits += int(found)
         mark = "✓" if found else "✗"
-        out.append(f"{mark} {f.name}: ได้ยิน = {heard!r} (คาดหวัง: {expected})")
+        print(f"{mark} ได้ยิน={heard!r}", flush=True)
+        out.append(f"{mark} {f.name}: ได้ยิน = {heard!r} (คาดหวัง: {expected_kw}, ยอมรับ: {accepted})")
+        # เขียนผลสะสมทุกไฟล์ ไม่ใช่รอจบหมดค่อยเขียน — เผื่อไฟล์หลัง ๆ error/timeout จะได้ไม่เสียผลที่ทำไปแล้ว
+        result_path.write_text("\n".join(out), encoding="utf-8")
 
     if total:
         out.append(f"\nสรุป: {hits}/{total} = {hits/total:.0%}")
+        result_path.write_text("\n".join(out), encoding="utf-8")
 
-    result_path = Path(__file__).parent.parent.parent / "real_voice_result.txt"
-    result_path.write_text("\n".join(out), encoding="utf-8")
-    print(f"done -> {result_path}")
+    print(f"done -> {result_path}", flush=True)
 
 
 if __name__ == "__main__":
