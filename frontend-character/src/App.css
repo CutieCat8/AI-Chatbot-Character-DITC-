@@ -17,6 +17,36 @@ body {
   padding: 20px;
 }
 
+.app-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.mode-tabs {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.mode-tab {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #aaa;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mode-tab--active {
+  background: #4a90d9;
+  color: white;
+}
+
 .app-stage {
   background: radial-gradient(circle, #2d2d4a 0%, #1a1a2e 100%);
   border-radius: 24px;

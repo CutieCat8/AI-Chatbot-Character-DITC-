@@ -1,18 +1,24 @@
 import { useRef, useState } from "react";
 import { CatCharacter } from "./components/CatCharacter";
 import { ControlPanel } from "./components/ControlPanel";
+import { LiveVoicePanel } from "./components/LiveVoicePanel";
 import { useAmplitude } from "./hooks/useAmplitude";
+import { useVoiceSocket } from "./hooks/useVoiceSocket";
 import type { CatState } from "./types";
 import "./App.css";
 
+type Mode = "file-test" | "live-voice";
+
 export function App() {
-  const [state, setState] = useState<CatState>("idle");
+  const [mode, setMode] = useState<Mode>("live-voice");
+
+  // ---- โหมดทดสอบด้วยไฟล์เสียง (เดิม) ----
+  const [fileTestState, setFileTestState] = useState<CatState>("idle");
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasAudio, setHasAudio] = useState(false);
   const objectUrlRef = useRef<string | null>(null);
-
-  const { amplitude, resume } = useAmplitude(audioEl);
+  const { amplitude: fileAmplitude, resume } = useAmplitude(audioEl);
 
   const handleFileSelected = (file: File) => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
@@ -23,48 +29,73 @@ export function App() {
       setHasAudio(true);
     }
   };
-
   const handlePlay = () => {
-    resume(); // AudioContext ต้อง resume ตอน user gesture เท่านั้น เรียกตรงนี้ (ปุ่มกด) ถึงจะได้ผล
+    resume();
     audioEl?.play();
     setIsPlaying(true);
-    // จำลองพฤติกรรมจริง: พูดอยู่ = wake, พูดจบ = กลับ idle (ของจริงจะผูกกับ turn_complete จาก WS)
-    setState("wake");
+    setFileTestState("wake");
   };
-
   const handlePause = () => {
     audioEl?.pause();
     setIsPlaying(false);
   };
-
   const handleAudioEnded = () => {
     setIsPlaying(false);
-    setState("transition");
-    setTimeout(() => setState("idle"), 400);
+    setFileTestState("transition");
+    setTimeout(() => setFileTestState("idle"), 400);
   };
+
+  // ---- โหมดคุยด้วยเสียงจริง (Gemini Live ผ่าน backend WS) ----
+  const voice = useVoiceSocket();
+
+  const displayState = mode === "live-voice" ? voice.catState : fileTestState;
+  const displayAmplitude = mode === "live-voice" ? voice.amplitude : isPlaying ? fileAmplitude : 0;
 
   return (
     <div className="app">
-      <audio
-        ref={(el) => setAudioEl(el)}
-        onEnded={handleAudioEnded}
-        style={{ display: "none" }}
-      />
+      <audio ref={(el) => setAudioEl(el)} onEnded={handleAudioEnded} style={{ display: "none" }} />
 
-      <div className="app-stage">
-        <CatCharacter state={state} amplitude={isPlaying ? amplitude : 0} />
+      <div className="app-column">
+        <div className="mode-tabs">
+          <button
+            className={`mode-tab ${mode === "live-voice" ? "mode-tab--active" : ""}`}
+            onClick={() => setMode("live-voice")}
+          >
+            คุยด้วยเสียงจริง
+          </button>
+          <button
+            className={`mode-tab ${mode === "file-test" ? "mode-tab--active" : ""}`}
+            onClick={() => setMode("file-test")}
+          >
+            ทดสอบด้วยไฟล์เสียง
+          </button>
+        </div>
+
+        <div className="app-stage">
+          <CatCharacter state={displayState} amplitude={displayAmplitude} />
+        </div>
       </div>
 
-      <ControlPanel
-        state={state}
-        onStateChange={setState}
-        onFileSelected={handleFileSelected}
-        onPlay={handlePlay}
-        onPause={handlePause}
-        isPlaying={isPlaying}
-        hasAudio={hasAudio}
-        amplitude={amplitude}
-      />
+      {mode === "live-voice" ? (
+        <LiveVoicePanel
+          connectionState={voice.connectionState}
+          transcript={voice.transcript}
+          errorMessage={voice.errorMessage}
+          onConnect={voice.connect}
+          onDisconnect={voice.disconnect}
+        />
+      ) : (
+        <ControlPanel
+          state={fileTestState}
+          onStateChange={setFileTestState}
+          onFileSelected={handleFileSelected}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          isPlaying={isPlaying}
+          hasAudio={hasAudio}
+          amplitude={fileAmplitude}
+        />
+      )}
     </div>
   );
 }
