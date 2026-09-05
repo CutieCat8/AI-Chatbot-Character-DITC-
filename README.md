@@ -24,7 +24,7 @@
 - **Frontend:** React / Next.js + Rive/Lottie
 - **Auth:** JWT
 - **Infra:** Docker Compose
-- **AI:** LLM (Claude/GPT — ยังเลือกได้), Embedding, STT/TTS (Google/Azure)
+- **AI:** LLM (Claude/DeepSeek — เลือกผ่าน `LLM_PROVIDER`), Embedding (`intfloat/multilingual-e5-large`, local ฟรี), Voice (Gemini Live API)
 
 ---
 
@@ -141,7 +141,7 @@ python -m app.scraper.run --only html   --json data/camt.json   # เฉพา�
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `rag/embedding.py` | แปลงข้อความ→เวกเตอร์ สลับ provider ได้: `openai` (จริง) \| `fake` (ทดสอบ ไม่ต้องมี key) |
+| `rag/embedding.py` | แปลงข้อความ→เวกเตอร์ สลับ provider ได้: `e5` (จริง, local ฟรี, ค่าเริ่มต้น) \| `openai` \| `fake` (ทดสอบ ไม่ต้องมี key) |
 | `rag/chunking.py` | ตัดเอกสารเป็นชิ้น (char-window + overlap รองรับภาษาไทยที่ไม่มีเว้นวรรค) |
 | `rag/indexer.py` | chunk+embed เอกสาร → เก็บ `document_chunks` (ข้ามอันที่ index แล้ว) |
 | `rag/retrieval.py` | ค้น chunk ใกล้เคียงคำถามด้วย pgvector (`<=>`, HNSW index จาก T02) |
@@ -161,8 +161,36 @@ python -m app.rag.verify --seed-demo
 python -m app.rag.verify --query "ค่าเทอมหลักสูตร SE เท่าไหร่"
 ```
 
-> ทดสอบ "ท่อ" โดยไม่ต้องมี OpenAI key ได้ด้วย `EMBEDDING_PROVIDER=fake` ใน `.env`
-> (fake = เวกเตอร์จำลอง พิสูจน์ว่า pipeline ทำงาน แต่ไม่มีความหมายเชิงภาษา — วัดคุณภาพจริงต้องใช้ `openai`)
+> ทดสอบ "ท่อ" โดยไม่ต้องมี key ได้ด้วย `EMBEDDING_PROVIDER=fake` ใน `.env`
+> (fake = เวกเตอร์จำลอง พิสูจน์ว่า pipeline ทำงาน แต่ไม่มีความหมายเชิงภาษา — ค่าเริ่มต้นจริงคือ `e5`)
+> เลือกใช้ `intfloat/multilingual-e5-large` แทน OpenAI/BGE-M3 หลัง benchmark เทียบกัน — เหตุผลเต็มดูที่
+> [`docs/adr/embedding-model.md`](docs/adr/embedding-model.md)
+
+---
+
+## Voice Pipeline (Sprint 2) — Gemini Live API
+
+โต้ตอบด้วยเสียงจริงผ่าน [Gemini Live API](https://ai.google.dev/gemini-api/docs/live) (ไม่ได้ต่อ STT/TTS
+แยกชิ้นเอง) — โมเดล `gemini-3.1-flash-live-preview` พูดไทยลื่น รองรับ function calling เข้า `rag/retrieval.py`
+เดิมได้ตรง ๆ ระหว่างคุย (ค้นฐานความรู้แล้วตอบจากผลจริงเท่านั้น ไม่เดา)
+
+| ไฟล์ | หน้าที่ |
+|---|---|
+| `app/routers/voice.py` | WS bridge (`/api/voice/ws`) — เสียงจากเบราว์เซอร์ ↔ Gemini Live ↔ เสียงตอบ (ให้ browser ทำ VAD/buffer เอง) |
+| `app/scripts/voice_pipeline_dev.py` | วงจรเสียงเต็มรูปแบบบนเครื่อง dev (ไมค์+ลำโพงจริง ไม่ต้องมี frontend) — ไว้ทดสอบวงจรทั้งวงก่อนต่อ `frontend-character` |
+| `app/static/voice_test.html` | หน้าทดสอบ WS bridge ผ่านเบราว์เซอร์ (เปิดที่ `/voice-test`) |
+
+```bash
+cd backend
+.venv/Scripts/python -m app.scripts.voice_pipeline_dev   # พูดใส่ไมค์ได้เลย ไม่ต้องกดปุ่ม
+```
+
+**ดีไซน์สำคัญ: half-duplex โดยตั้งใจ** — ไมค์จะปิดสนิทระหว่างแมวกำลังพูด เปิดฟังใหม่ทันทีที่พูดจบ
+(ไม่รองรับพูดแทรกกลางคำตอบ) เพราะเครื่อง dev ไม่มี hardware AEC ทดสอบจริงพบว่าเสียงลำโพงหลุดเข้าไมค์
+โดน Gemini ตีความเป็นผู้ใช้พูดแทรกซ้ำ ๆ ตัดคำตอบกลางคันทุกครั้ง (ยืนยันด้วยหูฟัง: ใส่แล้วปัญหาหายสนิท)
+และปัญหาคลาสเดียวกันจะเกิดจากเสียงคนคุยกันรอบข้างหน้าบูธจริงด้วย — ตัดสินใจร่วมกับทีมว่า mute ไมค์
+ระหว่างพูดปลอดภัยกว่าจริงในสภาพแวดล้อมที่มีเสียงดัง (คำตอบสั้นอยู่แล้ว 1-3 ประโยค ต้นทุนรอต่ำ) รายละเอียด
+เต็มอยู่ในคอมเมนต์บนสุดของ `voice_pipeline_dev.py`
 
 ---
 
@@ -170,8 +198,8 @@ python -m app.rag.verify --query "ค่าเทอมหลักสูตร 
 
 | Sprint | ธีม | สถานะ |
 |---|---|---|
-| 1 | Setup + Foundation |  WIP (T01 Done \| T02 Done \| T03 Done \| T04 Done) |
-| 2 | Core RAG + Voice Pipeline | Pending |
-| 3 | Character UI + Lip-sync | Pending |
-| 4 | Admin Dashboard + Feedback | Pending |
+| 1 | Setup + Foundation | Done (T01 \| T02 \| T03 \| T04) |
+| 2 | Core RAG + Voice Pipeline | WIP — chat backend + retrieval fixes Done, embedding เปลี่ยนเป็น e5-large Done, Gemini Live voice pipeline Done (dev-machine), ยังไม่ทดสอบ STT เสียงคนจริง |
+| 3 | Character UI + Lip-sync | Pending (`frontend-character/` ยังเป็นแค่ README) |
+| 4 | Admin Dashboard + Feedback | WIP — login/register + knowledge base dashboard + chat demo Done |
 | 5 | Integration, Testing & Delivery | Pending |
