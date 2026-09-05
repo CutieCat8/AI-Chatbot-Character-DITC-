@@ -63,26 +63,39 @@ def ask(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
 
     # รวม 3 ชุดผลลัพธ์ จำกัดไม่เกิน 2 chunk ต่อ document กันหลักสูตรเดียวฮุบที่หมด
     # (คำถามเปรียบเทียบหลายหลักสูตรต้องมีที่ให้ทุกหลักสูตรติดเข้ามาด้วย)
-    # expanded_results มาก่อนเสมอ — เป็นคำค้นที่ LLM แตกมาให้ตรงกับคำในเว็บจริง แม่นกว่ามาก
-    # ส่วน keyword_results (ตัดจากคำถามดิบด้วย split ธรรมดา) มักมีคำกว้างเกินไป (เช่น "camt"
-    # ที่อยู่ในทุกหน้า) ถ้าเอาไว้ก่อนจะแย่งที่ผลลัพธ์ดี ๆ ไปหมดตอน cap ที่ [:6] ด้านล่าง
+    #
+    # ลำดับ merge แก้แล้ว (2026-09-06, ดู docs/knowledge-base-audit.md): เดิมเอา keyword_results
+    # (ตัดคำแบบ split ธรรมดา มักกว้างเกินไป เช่น "SE" match nav menu ทุกหน้า) ไว้ก่อน vector_results
+    # เจอบั๊กจริงจากการวัด — บางคำถาม vector เจอ chunk ที่ถูกต้องเป๊ะ อันดับ 1 (distance ~0.13) แต่
+    # keyword_results (noise) เติมโควตาจนเต็มก่อนแล้ว vector ที่ถูกต้องโดนตัดทิ้งที่ [:6] ทุกครั้ง
+    # (ยืนยันด้วย query จริง "เบอร์โทรติดต่อ CAMT" และ "DITC มีโดรนให้ใช้ไหม" — เจอ chunk ถูกต้อง
+    # rank 1 ทาง vector แต่คำตอบสุดท้ายบอกว่าไม่มีข้อมูล) ลำดับใหม่: expanded (LLM แตกคำ แม่นสุด) ->
+    # vector (แม่นเป็นอันดับสอง จากการวัดจริง) -> keyword ดิบ (ใส่ท้ายสุด เติมที่ว่างเท่านั้น)
+    # เพิ่ม top_k ของ vector จาก 4 เป็น 12 ด้วย — วัดจริงพบคำตอบถูกอยู่ rank 7-11 หลายคำถาม (ค่าเทอม
+    # SE/DTM) ไม่ใช่แค่ปัญหาลำดับ merge อย่างเดียว
+    # (รอบสองของการแก้บั๊กนี้) เอา expanded_results ไว้ก่อน vector_results แล้วยังพังอยู่ — วัดจริง
+    # พบว่า expanded_results เอง (ก็ยังเป็น keyword_search ข้างใน แค่คำค้นมาจาก LLM) กว้างพอจะเติม
+    # โควตาจนเต็มก่อน vector ได้เหมือนกัน (ยืนยันจาก "ค่าเทอม SE/DTM" ที่ยังตอบไม่ได้แม้เพิ่ม
+    # vector top_k แล้ว) เลยต้องเอา vector_results ขึ้นก่อนสุดจริง ๆ ไม่ใช่แค่ก่อน keyword_results ดิบ
     expanded_results = (
         keyword_search(db, question, top_k=6, keywords=expanded_terms, max_per_document=2)
         if expanded_terms
         else []
     )
+    vector_results = search(db, question, top_k=12, embedder=get_embedder())
     keyword_results = keyword_search(db, question, top_k=6, max_per_document=2)
-    vector_results = search(db, question, top_k=4, embedder=get_embedder())
 
     seen_chunks: set[int] = set()
     results = []
-    for r in [*expanded_results, *keyword_results, *vector_results]:
+    for r in [*vector_results, *expanded_results, *keyword_results]:
         if r.chunk_id not in seen_chunks:
             seen_chunks.add(r.chunk_id)
             results.append(r)
     # จำกัด context ให้พอดี ๆ (ก่อนหน้านี้ 14 chunk ~ เกือบ 12,000 ตัวอักษร ทำให้ prompt ใหญ่
-    # เกินจำเป็นและ LLM ใช้เวลาประมวลผลนานขึ้นมาก) — 6 chunk พอสำหรับตอบสั้น ๆ แบบสนทนา
-    results = results[:6]
+    # เกินจำเป็นและ LLM ใช้เวลาประมวลผลนานขึ้นมาก) — cap ต้อง >= top_k ของ vector (12) เสมอ ไม่งั้น
+    # vector อยู่หัวแถวก็จริงแต่ rank ท้าย ๆ (9-12) ที่เป็นคำตอบถูกของบางคำถามยังโดน cap ตัดทิ้งอยู่ดี
+    # (เจอบั๊กรอบแรกที่ตั้ง cap=8 < top_k=12 แล้ว SE/DTM ยังพังเหมือนเดิม)
+    results = results[:12]
 
     if not results:
         return ChatResponse(

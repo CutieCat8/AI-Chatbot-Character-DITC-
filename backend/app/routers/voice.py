@@ -58,19 +58,28 @@ SEARCH_FUNCTION = types.FunctionDeclaration(
 
 
 def run_retrieval(query: str) -> str:
-    """เหมือนที่ routers/chat.py ใช้ทุกประการ (รวม DITC normalize) — ให้ Chat Demo กับตู้จริงตอบตรงกัน"""
+    """เหมือนที่ routers/chat.py ใช้ทุกประการ (รวม DITC normalize) — ให้ Chat Demo กับตู้จริงตอบตรงกัน
+
+    ลำดับ merge + top_k แก้แล้ว (2026-09-06, ดู docs/knowledge-base-audit.md): vector_results มาก่อน
+    keyword_results เสมอ (เดิมสลับกัน ทำให้ keyword noise เบียด vector match ที่ถูกต้อง rank 1 ตกไป
+    จาก [:6] ยืนยันจริงกับ query "เบอร์โทร CAMT"/"DITC มีโดรนให้ใช้ไหม") และเพิ่ม top_k vector
+    4->12 (คำตอบถูกของคำถามค่าเทอม SE/DTM วัดจริงอยู่ rank 7-11 ไม่ใช่แค่ปัญหาลำดับ merge) — cap
+    ผลลัพธ์สุดท้ายต้อง >= top_k ของ vector ด้วย ไม่งั้น vector มาก่อนก็จริงแต่ถ้า cap แคบกว่า
+    (เจอบั๊กรอบแรกที่ cap=8 < top_k=12 ตัดรายการ rank 9-12 ทิ้งทั้งที่เป็นฝั่ง vector เอง) เลยตั้ง
+    cap=12 ให้เท่ากับ top_k ของ vector พอดี รับประกันว่า vector ทั้งชุดผ่านแน่นอน
+    """
     query = normalize_query(query)
     db = SessionLocal()
     try:
+        vector_results = search(db, query, top_k=12, embedder=get_embedder())
         keyword_results = keyword_search(db, query, top_k=6, max_per_document=2)
-        vector_results = search(db, query, top_k=4, embedder=get_embedder())
         seen: set[int] = set()
         results = []
-        for r in [*keyword_results, *vector_results]:
+        for r in [*vector_results, *keyword_results]:
             if r.chunk_id not in seen:
                 seen.add(r.chunk_id)
                 results.append(r)
-        results = results[:6]
+        results = results[:12]
         if not results:
             return "ไม่พบข้อมูลที่เกี่ยวข้องในฐานความรู้"
         return "\n\n".join(f"[{r.document_title or r.source_url}]\n{r.content}" for r in results)
