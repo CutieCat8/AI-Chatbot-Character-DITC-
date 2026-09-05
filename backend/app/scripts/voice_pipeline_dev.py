@@ -32,6 +32,16 @@ Gemini ตีความว่าผู้ใช้พูดแทรกเอ�
 เดียวกัน (เสียงอื่นเข้าไมค์ระหว่างเล่นเสียงออก) จึงเลือก mute ไมค์ระหว่างแมวพูดแทน ปลอดภัยกว่าจริงสำหรับ
 งานหน้าบูธที่มีเสียงดัง คำตอบสั้นอยู่แล้ว (1-3 ประโยค) ต้นทุนรอให้พูดจบต่ำ — ถ้าต่อไปมีไมค์ hardware AEC/
 directional มายืนยันว่าใช้ได้จริง ค่อยกลับมาเปิด full-duplex ใหม่ได้
+
+หมายเหตุ — บั๊ก "คุยได้แค่รอบเดียวต่อการกดปุ่ม/เริ่มโปรแกรม" (พบและแก้ 2026-09-06): วินิจฉัยด้วยการ
+ทดสอบแยกเดี่ยวนอกแอปนี้เลย (เปิด session ตรงกับ Gemini API ไม่ผ่านโค้ดแอปสักบรรทัด) พบว่า
+`automatic_activity_detection` ของ Gemini เอง (gemini-3.1-flash-live-preview) ตรวจจับ "ผู้ใช้เริ่ม
+พูด" ได้แค่ครั้งแรกของ session เท่านั้น ไม่ re-arm ให้จับรอบสองอัตโนมัติ — ไม่เกี่ยวกับ half-duplex,
+ไม่เกี่ยวกับ tool-calling, ไม่เกี่ยวกับ transcription config เลยแม้แต่นิดเดียว (ทดสอบตัดตัวแปรออกทีละ
+ตัวจนเหลือ config เปลือยที่สุดก็ยังพัง) แก้โดยปิด AAD (`realtime_input_config.automatic_activity_
+detection.disabled=True`) แล้วส่ง `activity_start`/`activity_end` เองจากผลของ VAD ที่เรามีอยู่แล้ว —
+ทดสอบ 5 คำถามติดกันในเซสชันเดียวผ่านหมดหลังแก้ (ไม่ผ่านฮาร์ดแวร์จริง เพราะทดสอบด้วยไฟล์เสียง TTS
+ผ่าน Gemini Live API ตรง ๆ — ยังไม่เคยพิสูจน์กับไมค์จริงหลายคำถามติดกัน ต้องทดสอบเพิ่ม)
 """
 from __future__ import annotations
 
@@ -221,6 +231,15 @@ class ConversationSession:
             input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH", "en-US"]),
             system_instruction=SYSTEM_INSTRUCTION,
             tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
+            # ปิด automatic_activity_detection ของ Gemini เอง + ส่ง activity_start/activity_end มือเอง
+            # จาก VAD ของเราแทน (2026-09-06, แก้บั๊ก "คุยได้แค่รอบเดียวต่อการกดปุ่ม") — วินิจฉัยแล้วว่า
+            # AAD ของโมเดลนี้ (gemini-3.1-flash-live-preview) ตรวจจับ "เริ่มพูด" ได้แค่ครั้งแรกของ
+            # session เท่านั้น ไม่ re-arm ตัวเองให้จับรอบสองอัตโนมัติ — ยืนยันด้วยการทดสอบแยกเดี่ยวนอก
+            # แอปนี้เลย (ไม่พึ่ง half-duplex/tool-calling/transcription config ใด ๆ เจอบั๊กเดิมทุกครั้ง
+            # จนปิด AAD + ส่ง activity_start/end เองถึงหาย) ทดสอบ 5 คำถามติดกันผ่านหมดหลังแก้
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
+            ),
         )
 
         awaiting_response = False
@@ -232,12 +251,19 @@ class ConversationSession:
         async with self.client.aio.live.connect(model=MODEL, config=config) as session:
             logger.info("[SESSION] เปิดแล้ว")
 
+            # AAD ปิดแล้ว ต้องส่ง activity_start เองก่อนเสียงแรก — pre_roll คือส่วนแรกของ utterance
+            # ที่ VAD เจอแล้วในลูปนอก (ดู main()) ถือว่ากำลังพูดอยู่แล้วตั้งแต่ก่อน session เปิดด้วยซ้ำ
+            await session.send_realtime_input(activity_start=types.ActivityStart())
             for frame in pre_roll:
                 await session.send_realtime_input(audio=types.Blob(data=frame, mime_type="audio/pcm;rate=16000"))
 
             async def mic_to_gemini() -> None:
                 nonlocal awaiting_response, last_activity_ts, speech_end_ts
-                was_speech = True  # เพิ่งเปิด session เพราะเจอเสียงพูด ถือว่ากำลังพูดอยู่
+                was_speech = True  # เพิ่งเปิด session เพราะเจอเสียงพูด ถือว่ากำลังพูดอยู่ (ส่ง activity_start ไปแล้ว)
+                silent_streak = 0
+                # VAD_FRAME_SAMPLES=512 @ 16kHz = 32ms/เฟรม เงียบเฟรมเดียวไม่พอถือว่าจบประโยคจริง
+                # (เว้นวรรค/หายใจกลางคำถามสั้นกว่านี้ได้) ต้อง hangover ~500ms ก่อนส่ง activity_end จริง
+                SILENCE_HANGOVER_FRAMES = 16
                 while True:
                     frame = await self.mic.queue.get()
 
@@ -246,20 +272,43 @@ class ConversationSession:
                     # คุยกันรอบข้างหน้างาน) หลอกเป็นบาร์จอินซ้ำซาก (พิสูจน์แล้วจาก log จริงว่าตัด
                     # คำตอบกลางคันทุกครั้ง) — ปิดไมค์สนิทตอนแมวกำลังพูด เปิดฟังใหม่ทันทีที่เสียงเล่นจบจริง
                     if self.player.is_playing():
+                        # กันเผื่อ was_speech ค้าง True ข้ามช่วง mute (ไม่ควรเกิดในสถาปัตยกรรมปัจจุบัน
+                        # เพราะ activity_end ถูกส่งไปก่อน awaiting_response จะตั้งค่าเสมอ แต่ถ้าตรรกะ
+                        # ด้านบนเปลี่ยนในอนาคตแล้วพลาดจุดนี้ไป จะกลายเป็นบั๊ก "คุยได้แค่รอบเดียว" แบบ
+                        # เดียวกับที่เจอใน useVoiceSocket.ts จึงกันไว้เป็น safety net)
+                        if was_speech:
+                            await session.send_realtime_input(activity_end=types.ActivityEnd())
+                            was_speech = False
+                        silent_streak = 0
                         continue
 
                     is_speech = self.vad.is_speech(frame)
-                    await session.send_realtime_input(audio=types.Blob(data=frame, mime_type="audio/pcm;rate=16000"))
+
+                    # AAD ปิดแล้ว ต้องบอก Gemini เองว่า "เริ่มพูดรอบใหม่" ทุกครั้งที่ผ่านช่วงเงียบ/mute
+                    # มา (ไม่ใช่แค่ตอนเปิด session ครั้งแรก) — จุดนี้แหละที่แก้บั๊ก "คุยได้แค่รอบเดียว"
+                    if is_speech and not was_speech:
+                        await session.send_realtime_input(activity_start=types.ActivityStart())
+                        was_speech = True
+                        silent_streak = 0
 
                     if is_speech:
+                        silent_streak = 0
                         last_activity_ts = time.time()
                         speech_end_ts = None
-                    elif was_speech and not is_speech:
-                        speech_end_ts = time.time()
-                        awaiting_response = True
-                        logger.info("[VAD] พูดจบ รอคำตอบ...")
+                    elif was_speech:
+                        silent_streak += 1
+                        if silent_streak >= SILENCE_HANGOVER_FRAMES:
+                            await session.send_realtime_input(activity_end=types.ActivityEnd())
+                            was_speech = False
+                            silent_streak = 0
+                            speech_end_ts = time.time()
+                            awaiting_response = True
+                            logger.info("[VAD] พูดจบ รอคำตอบ...")
 
-                    was_speech = is_speech
+                    # ส่งเฉพาะช่วงที่ยังถือว่าอยู่ในประโยคเดียวกัน (รวม hangover ที่ยังไม่ยืนยันว่าจบ)
+                    # เหมือน useVoiceSocket.ts — Gemini (AAD ปิดแล้ว) สนใจแค่เสียงในช่วง activity เท่านั้น
+                    if was_speech:
+                        await session.send_realtime_input(audio=types.Blob(data=frame, mime_type="audio/pcm;rate=16000"))
 
                     # เงียบเกิน timeout และไม่ได้รอคำตอบอยู่ (ไม่ใช่แค่เงียบระหว่างรอ Gemini คิด) -> ปิด session
                     if not awaiting_response and time.time() - last_activity_ts >= self.silence_timeout:
@@ -267,44 +316,55 @@ class ConversationSession:
                         return
 
             async def gemini_to_speaker() -> None:
+                """
+                สำคัญ: session.receive() ของ SDK คืน "1 เทิร์นจบก็ break" เสมอ (ดู google/genai/live.py:
+                `while result := await self._receive(): ... if turn_complete: yield result; break;
+                yield result`) ไม่ใช่ stream ทั้ง session — ต้องเรียกใหม่ทุกเทิร์นด้วย while True ครอบไว้
+                ไม่งั้นพอเทิร์นแรกจบ for-loop ก็จบไปด้วย ฟังก์ชันนี้ return แล้ว asyncio.wait(...,
+                FIRST_COMPLETED) ด้านล่างจะเห็นว่า gemini_task เสร็จ แล้วปิดทั้ง session ทิ้งทันที
+                (เจอบั๊กนี้จริง 2026-09-06: ตู้จะเปิด session ใหม่ทุกคำถามโดยไม่มีใครสังเกต เพราะ log
+                ไม่ error อะไรเลย แค่ "[SESSION] ปิดแล้ว" แล้ว reconnect ใหม่เงียบ ๆ ทุกเทิร์น)
+                """
                 nonlocal awaiting_response, last_activity_ts, turn_user_text, turn_cat_text
                 loop = asyncio.get_running_loop()
-                async for response in session.receive():
-                    if response.tool_call:
-                        for fc in response.tool_call.function_calls:
-                            q = fc.args.get("query", "")
-                            t0 = time.perf_counter()
-                            # run_retrieval เป็น blocking call (DB + local embedding model) รันใน executor
-                            # กันไม่ให้ event loop ค้าง ไม่งั้นเสียงไมค์ที่กำลังส่งเข้า Gemini จะสะดุดเป็นช่วง ๆ
-                            result_text = await loop.run_in_executor(None, run_retrieval, q)
-                            dt = time.perf_counter() - t0
-                            logger.info("[TOOL] query=%r retrieval=%.3fs -> %d chars", q, dt, len(result_text))
-                            await session.send_tool_response(function_responses=[
-                                types.FunctionResponse(id=fc.id, name=fc.name, response={"result": result_text})
-                            ])
+                while True:
+                    async for response in session.receive():
+                        if response.tool_call:
+                            for fc in response.tool_call.function_calls:
+                                q = fc.args.get("query", "")
+                                t0 = time.perf_counter()
+                                # run_retrieval เป็น blocking call (DB + local embedding model) รันใน
+                                # executor กันไม่ให้ event loop ค้าง ไม่งั้นเสียงไมค์ที่กำลังส่งเข้า
+                                # Gemini จะสะดุดเป็นช่วง ๆ
+                                result_text = await loop.run_in_executor(None, run_retrieval, q)
+                                dt = time.perf_counter() - t0
+                                logger.info("[TOOL] query=%r retrieval=%.3fs -> %d chars", q, dt, len(result_text))
+                                await session.send_tool_response(function_responses=[
+                                    types.FunctionResponse(id=fc.id, name=fc.name, response={"result": result_text})
+                                ])
 
-                    if response.data is not None:
-                        if speech_end_ts is not None:
-                            def _log_latency(_ts=speech_end_ts) -> None:
-                                logger.info("[LATENCY] พูดจบ -> ได้ยินเสียงแรก = %.3fs", time.time() - _ts)
-                            self.player.on_first_frame_played = _log_latency
-                        self.player.feed(response.data)
+                        if response.data is not None:
+                            if speech_end_ts is not None:
+                                def _log_latency(_ts=speech_end_ts) -> None:
+                                    logger.info("[LATENCY] พูดจบ -> ได้ยินเสียงแรก = %.3fs", time.time() - _ts)
+                                self.player.on_first_frame_played = _log_latency
+                            self.player.feed(response.data)
 
-                    if response.server_content and response.server_content.input_transcription:
-                        piece = response.server_content.input_transcription.text
-                        if piece:
-                            turn_user_text += piece
-                    if response.server_content and response.server_content.output_transcription:
-                        piece = response.server_content.output_transcription.text
-                        if piece:
-                            turn_cat_text += piece
+                        if response.server_content and response.server_content.input_transcription:
+                            piece = response.server_content.input_transcription.text
+                            if piece:
+                                turn_user_text += piece
+                        if response.server_content and response.server_content.output_transcription:
+                            piece = response.server_content.output_transcription.text
+                            if piece:
+                                turn_cat_text += piece
 
-                    if response.server_content and response.server_content.turn_complete:
-                        logger.info("[TURN] ผู้ใช้: %r | แมว: %r", turn_user_text, turn_cat_text)
-                        turn_user_text = ""
-                        turn_cat_text = ""
-                        awaiting_response = False
-                        last_activity_ts = time.time()
+                        if response.server_content and response.server_content.turn_complete:
+                            logger.info("[TURN] ผู้ใช้: %r | แมว: %r", turn_user_text, turn_cat_text)
+                            turn_user_text = ""
+                            turn_cat_text = ""
+                            awaiting_response = False
+                            last_activity_ts = time.time()
 
             mic_task = asyncio.create_task(mic_to_gemini())
             gemini_task = asyncio.create_task(gemini_to_speaker())

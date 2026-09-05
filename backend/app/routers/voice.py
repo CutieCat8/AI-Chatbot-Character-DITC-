@@ -13,6 +13,7 @@ routers/voice.py — WebSocket bridge: mic เสียงจากเบรา�
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -99,47 +100,110 @@ async def voice_ws(websocket: WebSocket) -> None:
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         output_audio_transcription=types.AudioTranscriptionConfig(),
+        # จำกัด language_codes เสมอตามกฎ CLAUDE.md (ห้าม auto-detect เปิดกว้างทุกภาษา) — เคยเจอบั๊ก
+        # เดาเป็นอินโดนีเซียมาแล้วจริงตอนทดสอบเสียงคนจริง (ดู docs/adr/voice-stt-real-world-test.md)
+        # ไฟล์นี้ตกหล่นไปจาก voice_pipeline_dev.py ที่แก้ไว้แล้ว
+        input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH", "en-US"]),
         system_instruction=SYSTEM_INSTRUCTION,
         tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
+        # ปิด automatic_activity_detection ของ Gemini เอง + ให้ browser (useVoiceSocket.ts) เป็นคนบอก
+        # จุดเริ่ม/จบพูดเองผ่านข้อความ {"type":"speech_start"|"speech_end"} แทน (2026-09-06 แก้บั๊ก
+        # "คุยได้แค่รอบเดียวต่อการกดปุ่ม") — วินิจฉัยแล้วว่า AAD ของโมเดลนี้ (gemini-3.1-flash-live-
+        # preview) ตรวจจับ "เริ่มพูด" ได้แค่ครั้งแรกของ session เท่านั้น ไม่ re-arm ให้จับรอบสอง
+        # อัตโนมัติ ไม่เกี่ยวกับ half-duplex/tool-calling/transcription เลย (ทดสอบแยกเดี่ยวนอกแอปนี้
+        # ตัดตัวแปรออกทีละตัวจนเหลือ config เปลือยที่สุดก็ยังพัง) — เหมือนที่แก้ใน voice_pipeline_dev.py
+        # ทุกประการ ต่างแค่ว่าตัว "VAD" ที่นี่คือ local RMS ฝั่ง browser แทน silero-vad ฝั่ง Python
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
+        ),
     )
 
     try:
         async with client.aio.live.connect(model=MODEL, config=config) as session:
 
             async def browser_to_gemini() -> None:
-                """รับเสียงไบนารีจาก browser ส่งต่อให้ Gemini Live แบบ real-time"""
+                """รับจาก browser: เสียงไบนารี ส่งต่อ Gemini แบบ real-time, ข้อความ JSON (speech_start/
+                speech_end จาก local RMS ฝั่ง browser) แปลงเป็น activity_start/activity_end ให้ Gemini
+                (AAD ปิดอยู่ ต้องบอกเองทุกครั้ง ไม่ใช่แค่ตอนเปิด session — ดูคอมเมนต์ตอนสร้าง config)"""
                 while True:
-                    chunk = await websocket.receive_bytes()
-                    await session.send_realtime_input(
-                        audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
-                    )
+                    message = await websocket.receive()
+                    if message["type"] == "websocket.disconnect":
+                        # .receive() ดิบไม่เหมือน receive_bytes()/receive_text() ที่ raise
+                        # WebSocketDisconnect ให้เอง ต้องเช็ค+raise เองตรงนี้ ไม่งั้นจะวน .receive()
+                        # ซ้ำแล้ว Starlette โยน RuntimeError แทน (ปิด ws ปกติแต่ log เป็น error ผิด ๆ)
+                        raise WebSocketDisconnect(code=message.get("code", 1000))
+                    data = message.get("bytes")
+                    if data is not None:
+                        await session.send_realtime_input(
+                            audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
+                        )
+                        continue
+                    text = message.get("text")
+                    if text is None:
+                        continue
+                    try:
+                        msg = json.loads(text)
+                    except json.JSONDecodeError:
+                        logger.warning("voice_ws: ข้อความ JSON parse ไม่ได้: %r", text)
+                        continue
+                    if msg.get("type") == "speech_start":
+                        await session.send_realtime_input(activity_start=types.ActivityStart())
+                    elif msg.get("type") == "speech_end":
+                        await session.send_realtime_input(activity_end=types.ActivityEnd())
 
             async def gemini_to_browser() -> None:
-                """รับเสียง/tool call จาก Gemini Live ส่งเสียงต่อให้ browser, จัดการ tool call เอง"""
-                async for response in session.receive():
-                    if response.tool_call:
-                        function_responses = []
-                        for fc in response.tool_call.function_calls:
-                            q = fc.args.get("query", "")
-                            logger.info("voice tool call: query=%r", q)
-                            result_text = run_retrieval(q)
-                            function_responses.append(
-                                types.FunctionResponse(id=fc.id, name=fc.name, response={"result": result_text})
-                            )
-                        await session.send_tool_response(function_responses=function_responses)
+                """รับเสียง/tool call จาก Gemini Live ส่งเสียงต่อให้ browser, จัดการ tool call เอง
 
-                    if response.data is not None:
-                        await websocket.send_bytes(response.data)
+                สำคัญ: session.receive() ของ SDK คืน "1 เทิร์นจบก็ break" เสมอ (ดู
+                google/genai/live.py: `while result := await self._receive(): ... if turn_complete:
+                yield result; break; yield result`) ไม่ใช่ stream ทั้ง session — ต้องเรียกใหม่ทุกเทิร์น
+                ไม่งั้นพอเทิร์นแรกจบ for-loop ก็จบไปด้วย ฟังก์ชันนี้ return แล้วไม่มีใครรอฟัง Gemini อีก
+                เลย (เจอบั๊กนี้จริง 2026-09-06: เทิร์น 2 เงียบสนิทแม้ปิด AAD แล้ว เพราะ gemini_to_browser
+                ตายไปตั้งแต่เทิร์น 1 ทั้งที่ browser_to_gemini ยังส่ง audio/activity เข้า Gemini ปกติ)"""
+                loop = asyncio.get_running_loop()
+                while True:
+                    async for response in session.receive():
+                        if response.tool_call:
+                            function_responses = []
+                            for fc in response.tool_call.function_calls:
+                                q = fc.args.get("query", "")
+                                logger.info("voice tool call: query=%r", q)
+                                # run_retrieval บล็อก (DB + local embedding model) — รันใน executor กัน
+                                # event loop ค้าง ไม่งั้นเสียงไมค์ที่กำลังส่งเข้า Gemini จะสะดุดระหว่างรอ
+                                # (เหมือนที่แก้ไว้แล้วใน voice_pipeline_dev.py แต่ตกหล่นไปจากไฟล์นี้)
+                                result_text = await loop.run_in_executor(None, run_retrieval, q)
+                                function_responses.append(
+                                    types.FunctionResponse(id=fc.id, name=fc.name, response={"result": result_text})
+                                )
+                            await session.send_tool_response(function_responses=function_responses)
 
-                    if response.server_content and response.server_content.output_transcription:
-                        text_piece = response.server_content.output_transcription.text
-                        if text_piece:
-                            await websocket.send_json({"type": "transcript", "text": text_piece})
+                        if response.data is not None:
+                            await websocket.send_bytes(response.data)
 
-                    if response.server_content and response.server_content.turn_complete:
-                        await websocket.send_json({"type": "turn_complete"})
+                        if response.server_content and response.server_content.output_transcription:
+                            text_piece = response.server_content.output_transcription.text
+                            if text_piece:
+                                await websocket.send_json({"type": "transcript", "text": text_piece})
 
-            await asyncio.gather(browser_to_gemini(), gemini_to_browser())
+                        if response.server_content and response.server_content.turn_complete:
+                            await websocket.send_json({"type": "turn_complete"})
+
+            # ทั้งสอง task วิ่งตลอดอายุ connection แล้ว (ตั้งแต่แก้ gemini_to_browser ให้ while True
+            # ครอบ session.receive() ใหม่ทุกเทิร์น) ตัวเดียวที่จบได้ปกติคือ browser_to_gemini ตอน
+            # WebSocketDisconnect — ต้อง cancel อีก task ที่เหลือเองเสมอ ไม่งั้น async with ปิด session
+            # ทิ้งไปแล้ว แต่ gemini_to_browser ยังพยายาม await session.receive() ต่อ กลายเป็น "Task
+            # exception was never retrieved" (เหมือนที่ voice_pipeline_dev.py จัดการไว้แล้วใน finally)
+            tasks = [asyncio.create_task(browser_to_gemini()), asyncio.create_task(gemini_to_browser())]
+            try:
+                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for r in results:
+                    if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
+                        raise r
 
     except WebSocketDisconnect:
         logger.info("voice_ws: client disconnected")

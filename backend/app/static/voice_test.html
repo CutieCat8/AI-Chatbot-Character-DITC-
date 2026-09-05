@@ -22,6 +22,19 @@
 const JITTER_BUFFER_MS = 1500; // บัฟเฟอร์ก่อนเริ่มเล่น กันเน็ตไม่นิ่งตามที่ตกลงกันไว้
 const OUTPUT_SAMPLE_RATE = 24000; // Gemini Live ส่งเสียงกลับมาที่ 24kHz PCM16 mono
 const INPUT_SAMPLE_RATE = 16000;  // Gemini Live รับเสียงเข้าที่ 16kHz PCM16 mono
+// backend ปิด automatic_activity_detection ของ Gemini แล้ว (2026-09-06 แก้บั๊ก "คุยได้แค่รอบเดียว"
+// ดู routers/voice.py) เพจนี้ต้องส่ง {"type":"speech_start"|"speech_end"} เองเหมือน useVoiceSocket.ts
+// ไม่งั้นจะไม่ได้คำตอบแม้แต่เทิร์นแรก
+const LOCAL_VAD_RMS_THRESHOLD = 0.02;
+const SILENCE_HANGOVER_MS = 500;
+let wasSpeech = false;
+let silentStreak = 0;
+
+function rmsOf(samples) {
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+  return Math.sqrt(sumSquares / samples.length);
+}
 
 const logEl = document.getElementById('log');
 const statusEl = document.getElementById('status');
@@ -106,6 +119,10 @@ async function start() {
     micSource.connect(micProcessor);
     micProcessor.connect(audioCtx.destination);
 
+    wasSpeech = false;
+    silentStreak = 0;
+    const hangoverBuffers = Math.max(1, Math.round((SILENCE_HANGOVER_MS / 1000) * audioCtx.sampleRate / 4096));
+
     micProcessor.onaudioprocess = (e) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
@@ -114,7 +131,23 @@ async function start() {
       const outLength = Math.floor(input.length / ratio);
       const resampled = new Float32Array(outLength);
       for (let i = 0; i < outLength; i++) resampled[i] = input[Math.floor(i * ratio)];
-      ws.send(floatTo16BitPCM(resampled));
+
+      const isSpeechNow = rmsOf(resampled) > LOCAL_VAD_RMS_THRESHOLD;
+      if (isSpeechNow) {
+        silentStreak = 0;
+        if (!wasSpeech) {
+          ws.send(JSON.stringify({ type: 'speech_start' }));
+          wasSpeech = true;
+        }
+      } else if (wasSpeech) {
+        silentStreak += 1;
+        if (silentStreak >= hangoverBuffers) {
+          ws.send(JSON.stringify({ type: 'speech_end' }));
+          wasSpeech = false;
+          silentStreak = 0;
+        }
+      }
+      if (wasSpeech) ws.send(floatTo16BitPCM(resampled));
     };
   };
 

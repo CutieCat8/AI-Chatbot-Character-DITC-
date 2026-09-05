@@ -4,7 +4,8 @@ import type { CatState } from "../types";
 const INPUT_SAMPLE_RATE = 16000; // Gemini Live รับเสียงเข้าที่ 16kHz PCM16 mono
 const OUTPUT_SAMPLE_RATE = 24000; // Gemini Live ส่งเสียงตอบกลับมาที่ 24kHz PCM16 mono
 const JITTER_BUFFER_MS = 1500; // ตกลงกันไว้ตอนทำ backend (ดู voice_test.html/voice_pipeline_dev.py)
-const LOCAL_VAD_RMS_THRESHOLD = 0.02; // ใช้แค่ขยับ cat state ในเบราว์เซอร์เอง ไม่ส่งผลต่อ backend
+const LOCAL_VAD_RMS_THRESHOLD = 0.02; // ใช้ตัดสิน speech_start/speech_end ที่ส่งให้ backend จริง (ดู onaudioprocess)
+const SILENCE_HANGOVER_MS = 500; // ต้องเงียบต่อเนื่องแค่ไหนถึงถือว่าพูดจบ กันตัดกลางคำที่มีช่วงเว้นวรรค/หายใจสั้น ๆ
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
 
 // backend รันคนละ origin กับหน้านี้ (5174 vs 8000) ต่อ WS ตรง ๆ ได้เลย ไม่ติด CORS (WS ไม่ผ่าน
@@ -82,6 +83,8 @@ export function useVoiceSocket(): UseVoiceSocketResult {
   const rafIdRef = useRef<number | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catStateRef = useRef<CatState>("idle"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
+  const wasSpeechRef = useRef(false); // เดิม/จบพูดรอบล่าสุด — ใช้ส่ง speech_start/speech_end ให้ backend
+  const silentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนส่ง speech_end จริง
 
   const setCatStateSafe = useCallback((s: CatState) => {
     catStateRef.current = s;
@@ -124,6 +127,8 @@ export function useVoiceSocket(): UseVoiceSocketResult {
     setErrorMessage(null);
     setConnectionState("connecting");
     setTranscript("");
+    wasSpeechRef.current = false; // กัน state ค้างข้ามรอบ connect (เช่น reconnect หลังกด หยุด/เริ่มใหม่)
+    silentStreakRef.current = 0;
 
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
@@ -218,22 +223,69 @@ export function useVoiceSocket(): UseVoiceSocketResult {
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
+    // hangover เป็นจำนวน buffer แทนหน่วยเวลาตรง ๆ เพราะ ScriptProcessor เรียก callback ตาม
+    // audioCtx.sampleRate ของเครื่อง (48kHz เดสก์ท็อปทั่วไป แต่ไม่การันตี) ไม่ใช่ INPUT_SAMPLE_RATE
+    const BUFFER_SIZE = 4096;
+    const hangoverBuffers = Math.max(1, Math.round((SILENCE_HANGOVER_MS / 1000) * audioCtx.sampleRate / BUFFER_SIZE));
+
     micProcessor.onaudioprocess = (e) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
 
       // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด
-      if (isBotSpeaking()) return;
+      if (isBotSpeaking()) {
+        // ถ้าเพิ่งพูดค้างอยู่ตอนโดน mute (เช่น เผลอพูดคาบเกี่ยวจังหวะที่เสียงแมวเริ่มเล่นจริงหลัง
+        // jitter buffer 1.5s ซึ่ง isBotSpeaking() ยังไม่ทันขึ้น true) ต้องปิด activity ให้ Gemini
+        // ทันทีตรงนี้ ไม่งั้น wasSpeechRef ค้างเป็น true ข้ามรอบ mute พอเปิดไมค์กลับมาแล้วผู้ใช้เริ่ม
+        // ถามคำถามถัดไปจริง ๆ เงื่อนไข isSpeech && !wasSpeechRef.current จะเป็น false ตลอด (เพราะ
+        // wasSpeechRef ค้างมาจากรอบก่อน) เลยไม่ส่ง speech_start ให้ Gemini อีกเลย — กลายเป็นบั๊กเดิม
+        // "คุยได้แค่รอบเดียว" กลับมาผ่านทางอ้อม ทั้งที่แก้ AAD ไปแล้ว
+        if (wasSpeechRef.current) {
+          ws.send(JSON.stringify({ type: "speech_end" }));
+          wasSpeechRef.current = false;
+        }
+        silentStreakRef.current = 0;
+        return;
+      }
 
       const ratio = audioCtx.sampleRate / INPUT_SAMPLE_RATE;
       const outLength = Math.floor(input.length / ratio);
       const resampled = new Float32Array(outLength);
       for (let i = 0; i < outLength; i++) resampled[i] = input[Math.floor(i * ratio)];
-      ws.send(floatTo16BitPCM(resampled));
 
-      // client-side VAD ง่าย ๆ แค่ขยับ cat state ให้ตอบสนองไว (ไม่กระทบ backend/turn logic ใด ๆ)
+      // local RMS ตัวนี้ "มีผลจริง" กับ backend — backend ปิด automatic_activity_detection ของ
+      // Gemini แล้ว (ดูคอมเมนต์ใน routers/voice.py: AAD ของโมเดลนี้ตรวจจับ "เริ่มพูด" ได้แค่ครั้งแรก
+      // ของ session เท่านั้น ไม่ re-arm ให้จับรอบสองอัตโนมัติ) ต้องส่ง speech_start/speech_end เอง
+      // ทุกครั้งที่ผ่าน transition เงียบ<->พูด ไม่งั้น Gemini จะไม่รู้เลยว่ามีคำถามใหม่มา
+      //
+      // ใช้ hangover (เงียบต่อเนื่อง hangoverBuffers ครั้งถึงจะถือว่าจบจริง) กัน buffer เงียบสั้น ๆ
+      // แค่ 1 ครั้ง (~85ms ที่ 48kHz เว้นวรรค/หายใจกลางประโยค) ตัด activity_end กลางคำถามที่ยังพูดไม่จบ
       const localRms = rmsOf(resampled);
-      if (localRms > LOCAL_VAD_RMS_THRESHOLD) {
+      const isSpeechNow = localRms > LOCAL_VAD_RMS_THRESHOLD;
+      if (isSpeechNow) {
+        silentStreakRef.current = 0;
+        if (!wasSpeechRef.current) {
+          ws.send(JSON.stringify({ type: "speech_start" }));
+          wasSpeechRef.current = true;
+        }
+      } else if (wasSpeechRef.current) {
+        silentStreakRef.current += 1;
+        if (silentStreakRef.current >= hangoverBuffers) {
+          ws.send(JSON.stringify({ type: "speech_end" }));
+          wasSpeechRef.current = false;
+          silentStreakRef.current = 0;
+        }
+      }
+
+      // ส่งเสียงเข้า Gemini แค่ช่วงที่ยังถือว่า "อยู่ในประโยคเดียวกัน" (รวมช่วง hangover ที่ยังไม่ทัน
+      // ยืนยันว่าจบจริง) เท่านั้น — เงียบที่ผ่าน hangover ไปแล้วไม่ต้องส่งต่อ ประหยัด bandwidth/quota
+      // โดยไม่กระทบผล เพราะ Gemini (AAD ปิดแล้ว) สนใจแค่เสียงระหว่าง activity_start/end เท่านั้น
+      if (wasSpeechRef.current) {
+        ws.send(floatTo16BitPCM(resampled));
+      }
+
+      // ส่วนนี้แค่ขยับ cat state ให้ตอบสนองไว (UI ล้วน ๆ แยกจาก speech_start/end ด้านบน)
+      if (isSpeechNow) {
         if (catStateRef.current === "idle" || catStateRef.current === "sleep") setCatStateSafe("wake");
         resetIdleTimer();
       } else if (catStateRef.current === "wake" && !isBotSpeaking()) {
