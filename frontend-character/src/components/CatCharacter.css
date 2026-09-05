@@ -1,0 +1,141 @@
+.cat-character {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+
+.cat-head {
+  fill: #f5a623;
+  stroke: #d4880f;
+  stroke-width: 3;
+}
+
+.cat-ear {
+  fill: #f5a623;
+  stroke: #d4880f;
+  stroke-width: 3;
+}
+
+.cat-eye {
+  fill: #2b2b2b;
+}
+
+.cat-eye-shine {
+  fill: #ffffff;
+}
+
+.cat-eye-closed {
+  fill: none;
+  stroke: #2b2b2b;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.cat-nose {
+  fill: #d4880f;
+}
+
+.cat-mouth {
+  fill: #7a3b1e;
+  transition: ry 0.06s linear; /* เร็วพอให้ตามเสียงพูดทัน แต่ไม่กระตุกเกินไป (smoothing หลักอยู่ที่ useAmplitude) */
+}
+
+.cat-whisker {
+  stroke: #d4880f;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* ---- สถานะ Idle: เฉย ๆ หายใจเบา ๆ ---- */
+.cat-character--idle {
+  animation: cat-breathe 3.5s ease-in-out infinite;
+}
+
+/* ---- สถานะ Transition: กระพริบ/สั่นสั้น ๆ ตอนเปลี่ยนสถานะ ---- */
+.cat-character--transition {
+  animation: cat-transition-pulse 0.4s ease-in-out;
+}
+
+/* ---- สถานะ Web: เอียงหัวนิดหน่อยเหมือนกำลังคิด ---- */
+.cat-character--web {
+  animation: cat-think-tilt 1.6s ease-in-out infinite;
+}
+
+/* ---- สถานะ Sleep: หายใจช้าลง มืดลงเล็กน้อย ---- */
+.cat-character--sleep {
+  animation: cat-sleep-breathe 4.5s ease-in-out infinite;
+  filter: brightness(0.85);
+}
+
+/* ---- สถานะ Wake: เด้งเข้ามาทันทีที่ได้ยินเสียง ---- */
+.cat-character--wake {
+  animation: cat-wake-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes cat-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+@keyframes cat-transition-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.94); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes cat-think-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(4deg); }
+}
+
+@keyframes cat-sleep-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.015); }
+}
+
+@keyframes cat-wake-bounce {
+  0% { transform: scale(0.85); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+.cat-zzz {
+  position: absolute;
+  top: -10px;
+  right: 10px;
+  font-size: 28px;
+  font-weight: 700;
+  color: #8a8a8a;
+  animation: cat-zzz-float 3s ease-in-out infinite;
+}
+
+@keyframes cat-zzz-float {
+  0% { transform: translateY(0); opacity: 0.3; }
+  50% { transform: translateY(-14px); opacity: 1; }
+  100% { transform: translateY(-24px); opacity: 0; }
+}
+
+.cat-thinking {
+  position: absolute;
+  bottom: 10px;
+  right: 0;
+  display: flex;
+  gap: 5px;
+}
+
+.cat-thinking-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4a90d9;
+  animation: cat-thinking-bounce 1s ease-in-out infinite;
+}
+.cat-thinking-dot:nth-child(2) { animation-delay: 0.15s; }
+.cat-thinking-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes cat-thinking-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-6px); opacity: 1; }
+}
