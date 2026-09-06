@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * อ่านระดับเสียง (amplitude) แบบเรียลไทม์จาก <audio> element ผ่าน Web Audio API
- * คืนค่า 0-1 ให้ CatCharacter ใช้ขยับปาก (lip-flap) — วิธีนี้ตั้งใจใช้ "amplitude เฉย ๆ" ตามที่
+ * คืนค่า 0-1 ให้ CatFace ใช้ขยับปาก (lip-flap) — วิธีนี้ตั้งใจใช้ "amplitude เฉย ๆ" ตามที่
  * Scope บอกไว้ (ไม่ต้อง viseme-accurate จริง "ไม่ต้องเป๊ะ") ไม่ใช่ lip-sync แบบวิเคราะห์หน่วยเสียง
  *
  * หมายเหตุ: AudioContext เริ่มทำงานได้ต้องมี user gesture ก่อน (ข้อจำกัดเบราว์เซอร์) — เรียก

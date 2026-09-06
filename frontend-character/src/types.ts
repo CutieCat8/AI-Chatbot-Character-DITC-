@@ -1,5 +1,5 @@
 // 5 สถานะตามดีไซน์ใน Scope (README เดิม): Idle / Transition / Web / Sleep / Wake
-// ดูรายละเอียดพฤติกรรมแต่ละสถานะที่ CatCharacter.tsx (คอมเมนต์กำกับแต่ละสถานะไว้ที่จุดใช้งาน)
+// แมปเป็น 7 render-state ของ CatFace.tsx (จาก Figma) ที่ App.tsx — ดูตารางแมปเต็มที่ CLAUDE.md
 export type CatState = "idle" | "transition" | "web" | "sleep" | "wake";
 
 export const CAT_STATES: readonly CatState[] = ["idle", "transition", "web", "sleep", "wake"];

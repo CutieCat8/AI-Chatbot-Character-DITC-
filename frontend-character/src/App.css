@@ -5,7 +5,7 @@
 body {
   margin: 0;
   font-family: -apple-system, "Segoe UI", "Sarabun", sans-serif;
-  background: #1a1a2e;
+  background: #000; /* พื้นหลังดำล้วนตามที่ตกลงกันไว้ — ไม่มีเว็บ/UI อื่นแสดงผลผ่านกระจกครอบแล้ว มีแค่หน้าแมว */
 }
 
 .app {
@@ -48,10 +48,12 @@ body {
 }
 
 .app-stage {
-  background: radial-gradient(circle, #2d2d4a 0%, #1a1a2e 100%);
+  background: #000;
   border-radius: 24px;
+  overflow: hidden;
   width: 500px;
-  height: 500px;
+  max-width: 90vw;
+  aspect-ratio: 1440 / 900; /* สัดส่วน viewBox ของ CatFace.tsx */
   display: flex;
   align-items: center;
   justify-content: center;

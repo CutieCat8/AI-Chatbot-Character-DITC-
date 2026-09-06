@@ -6,7 +6,7 @@ import "./CharacterPage.css";
  * แปลงจาก CharacterPage.jsx (Figma export) — เดิมใช้ class Tailwind ล้วน (bg-neutral-950,
  * rounded-lg, ...) แต่โปรเจกต์นี้ไม่มี Tailwind ติดตั้งอยู่เลย (เช็คแล้วจาก package.json) ทำให้ทุก
  * class เดิมไม่มีผลอะไรบนหน้าจอจริง เขียน CharacterPage.css ใหม่แทนให้ตรงธรรมเนียมไฟล์อื่นในโปรเจกต์
- * (ดู App.css/CatCharacter.css — plain CSS ล้วน ไม่มี framework)
+ * (ดู App.css — plain CSS ล้วน ไม่มี framework)
  *
  * ไม่มี react-router-dom ในโปรเจกต์ด้วย (README เดิมบอกให้เพิ่ม <Route path="/character">) —
  * คอมโพเนนต์นี้เลยออกแบบใหม่ให้เป็น "เนื้อหา" เปล่า ๆ ไม่ห่อ full-page wrapper ของตัวเอง

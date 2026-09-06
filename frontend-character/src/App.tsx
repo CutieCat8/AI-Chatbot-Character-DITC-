@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { CatCharacter } from "./components/CatCharacter";
+import CatFace, { type CatFaceState } from "./components/character/CatFace";
 import CharacterPage from "./components/character/CharacterPage";
 import { ControlPanel } from "./components/ControlPanel";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
@@ -9,6 +9,29 @@ import type { CatState } from "./types";
 import "./App.css";
 
 type Mode = "file-test" | "live-voice" | "figma-preview";
+
+/**
+ * แปลง CatState เดิม (5 ค่าตามสโคป TOR) เป็น CatFaceState ใหม่ (7 render-state จาก Figma) —
+ * ดูตารางแมปเต็มที่ CLAUDE.md หัวข้อ "ข้อกำหนดที่ห้ามละเมิด"
+ *
+ * จุดที่ต้องแยกเอง: catState==="wake" เดิมตั้งทั้งตอนผู้ใช้พูดและตอนแมวพูด (ดูคอมเมนต์ใน
+ * useVoiceSocket.ts) แยกด้วย `botSpeaking` ที่เพิ่มเข้ามาต่างหาก ถึงจะรู้ว่าควรโชว์ตา "listening"
+ * (ตอนฟังผู้ใช้) หรือปาก "speaking" ที่ขยับตาม amplitude จริง (ตอนแมวพูดตอบ)
+ */
+function toCatFaceState(state: CatState, botSpeaking: boolean): CatFaceState {
+  switch (state) {
+    case "sleep":
+      return "sleeping";
+    case "wake":
+      return botSpeaking ? "speaking" : "listening";
+    case "web":
+      return "thinking"; // "Web" ในสโคปเดิม = ช่วงกำลังค้น/ประมวลผล ไม่ใช่หน้าเว็บบนจอ (ยืนยันแล้วกับผู้ใช้)
+    case "transition":
+    case "idle":
+    default:
+      return "idle";
+  }
+}
 
 export function App() {
   const [mode, setMode] = useState<Mode>("live-voice");
@@ -51,6 +74,9 @@ export function App() {
 
   const displayState = mode === "live-voice" ? voice.catState : fileTestState;
   const displayAmplitude = mode === "live-voice" ? voice.amplitude : isPlaying ? fileAmplitude : 0;
+  // file-test ไม่มีไมค์ผู้ใช้จริง เสียงที่เล่นคือเสียงแมวเสมอ ("wake" ในโหมดนี้ = กำลังเล่นไฟล์เสียง)
+  const displayBotSpeaking = mode === "live-voice" ? voice.botSpeaking : isPlaying;
+  const faceState = toCatFaceState(displayState, displayBotSpeaking);
 
   return (
     <div className="app">
@@ -82,7 +108,7 @@ export function App() {
           <CharacterPage />
         ) : (
           <div className="app-stage">
-            <CatCharacter state={displayState} amplitude={displayAmplitude} />
+            <CatFace state={faceState} amplitude={displayAmplitude} />
           </div>
         )}
       </div>

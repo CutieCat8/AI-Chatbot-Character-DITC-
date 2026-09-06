@@ -24,6 +24,12 @@ export type VoiceConnectionState = "idle" | "connecting" | "connected" | "error"
 interface UseVoiceSocketResult {
   connectionState: VoiceConnectionState;
   catState: CatState;
+  /**
+   * true ตอนแมวกำลังพูดจริง (ต่างจาก catState==="wake" ที่ตั้งทั้งตอนผู้ใช้พูดและตอนแมวพูด — ค่านี้
+   * แยกให้ชัดเจน เพิ่มมาให้ CatFace ใหม่ (จาก Figma) เลือกได้ว่าจะโชว์ "listening" หรือ "speaking"
+   * ตอน catState เป็น wake เหมือนกัน ดู docs/adr และ CLAUDE.md เรื่องแมป 7→5 states)
+   */
+  botSpeaking: boolean;
   amplitude: number;
   transcript: string;
   errorMessage: string | null;
@@ -67,6 +73,7 @@ function rmsOf(float32: Float32Array): number {
 export function useVoiceSocket(): UseVoiceSocketResult {
   const [connectionState, setConnectionState] = useState<VoiceConnectionState>("idle");
   const [catState, setCatState] = useState<CatState>("idle");
+  const [botSpeaking, setBotSpeaking] = useState(false);
   const [amplitude, setAmplitude] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -121,6 +128,7 @@ export function useVoiceSocket(): UseVoiceSocketResult {
     setConnectionState("closed");
     setCatStateSafe("idle");
     setAmplitude(0);
+    setBotSpeaking(false);
   }, [setCatStateSafe]);
 
   const connect = useCallback(async () => {
@@ -193,7 +201,9 @@ export function useVoiceSocket(): UseVoiceSocketResult {
       smoothed += (target - smoothed) * 0.35;
       setAmplitude(smoothed);
 
-      if (isBotSpeaking()) {
+      const speaking = isBotSpeaking();
+      setBotSpeaking(speaking);
+      if (speaking) {
         if (catStateRef.current !== "wake") setCatStateSafe("wake");
         resetIdleTimer();
       } else if (catStateRef.current === "wake") {
@@ -322,5 +332,5 @@ export function useVoiceSocket(): UseVoiceSocketResult {
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
 
-  return { connectionState, catState, amplitude, transcript, errorMessage, connect, disconnect };
+  return { connectionState, catState, botSpeaking, amplitude, transcript, errorMessage, connect, disconnect };
 }
