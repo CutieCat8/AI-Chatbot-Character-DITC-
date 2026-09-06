@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { CatCharacter } from "./components/CatCharacter";
+import CharacterPage from "./components/character/CharacterPage";
 import { ControlPanel } from "./components/ControlPanel";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
 import { useAmplitude } from "./hooks/useAmplitude";
@@ -7,7 +8,7 @@ import { useVoiceSocket } from "./hooks/useVoiceSocket";
 import type { CatState } from "./types";
 import "./App.css";
 
-type Mode = "file-test" | "live-voice";
+type Mode = "file-test" | "live-voice" | "figma-preview";
 
 export function App() {
   const [mode, setMode] = useState<Mode>("live-voice");
@@ -69,14 +70,24 @@ export function App() {
           >
             ทดสอบด้วยไฟล์เสียง
           </button>
+          <button
+            className={`mode-tab ${mode === "figma-preview" ? "mode-tab--active" : ""}`}
+            onClick={() => setMode("figma-preview")}
+          >
+            หน้าใหม่จาก Figma (พรีวิว)
+          </button>
         </div>
 
-        <div className="app-stage">
-          <CatCharacter state={displayState} amplitude={displayAmplitude} />
-        </div>
+        {mode === "figma-preview" ? (
+          <CharacterPage />
+        ) : (
+          <div className="app-stage">
+            <CatCharacter state={displayState} amplitude={displayAmplitude} />
+          </div>
+        )}
       </div>
 
-      {mode === "live-voice" ? (
+      {mode === "live-voice" && (
         <LiveVoicePanel
           connectionState={voice.connectionState}
           transcript={voice.transcript}
@@ -84,7 +95,8 @@ export function App() {
           onConnect={voice.connect}
           onDisconnect={voice.disconnect}
         />
-      ) : (
+      )}
+      {mode === "file-test" && (
         <ControlPanel
           state={fileTestState}
           onStateChange={setFileTestState}
