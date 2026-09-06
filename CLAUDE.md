@@ -85,6 +85,12 @@
   หลุดไปภาษาอื่นได้เหมือนเดิม แค่ไม่ได้ล็อกภาษาเดียวอีกต่อไป)
 - ไม่มี touchscreen เพราะมีกระจกครอบ ทุกฟังก์ชันสั่งด้วยเสียง
 - 5 สถานะแมว: Idle / Transition / Web / Sleep / Wake
+  (2026-09-07: `frontend-character/src/components/character/CatFace.tsx` ที่ export จาก Figma มี
+  7 render-state — ยังนับเป็น 5 สถานะสโคปเดิม ไม่ผิด TOR เพราะแมป 7→5 ตามนี้: `sleeping`→Sleep,
+  `waking`→Wake, `idle`→Idle, ส่วน `listening`/`thinking`/`speaking`/`angry` เป็นแค่ **render
+  sub-state ของ Wake** (รายละเอียดภาพตอนกำลังโต้ตอบ ไม่ใช่สถานะใหม่ตามสโคป) — ยังไม่ได้ต่อกับ
+  `useVoiceSocket`/`CatCharacter.tsx` จริง เป็นไฟล์แยกไว้พรีวิวก่อน ถ้าจะ map ต่างจากนี้ต้องแก้ตาราง
+  นี้ให้ตรงเสมอ กันหลุดสโคปแบบไม่รู้ตัว)
 - ตอบเฉพาะขอบเขต CAMT, DITC และเนื้อหาบนเว็บ DITC
   คำถามนอกขอบเขตให้ปฏิเสธสุภาพแล้วชวนกลับเข้าหัวข้อ
 
