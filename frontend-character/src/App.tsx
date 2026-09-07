@@ -96,10 +96,14 @@ export function App() {
 
   // เดิม App.tsx ไม่เคยส่ง gaze/blink ให้ CatFace เลย (ตาค้างนิ่งตลอด) — ใช้ logic เดียวกับที่
   // CharacterPage.tsx (หน้าพรีวิว) ใช้: กระพริบตลอดยกเว้นตอนหลับ (ถี่ขึ้นตอน thinking ให้ดูต่างจาก
-  // listening ชัดเจน — หูก็หยุดสลับกลับเป็นท่าปกติตอน thinking ด้วย ดู CatFace.tsx), ตากลอกเฉพาะ
-  // ตอน "listening"
+  // listening ชัดเจน — หูก็หยุดสลับกลับเป็นท่าปกติตอน thinking ด้วย ดู CatFace.tsx)
   const blink = useBlink({ enabled: faceState !== "sleeping", rate: faceState === "thinking" ? 0.45 : 1 });
-  const gaze = useGazeLoop({ enabled: faceState === "listening" });
+  // ตากลอกย้ายมาไว้ตอน "idle" แทน "listening" (ทดสอบเสียงจริง 2026-09-08) — คนตั้งใจฟังจะจ้องนิ่ง
+  // ไม่กรอกตา ส่วนตอน idle (ยังไม่มีใครคุยด้วย) กรอกตาไปมาสื่อว่ากำลังมองรอบ ๆ รอคนมาคุย — หมายเหตุ:
+  // ตอนนี้ "idle" ใช้ eyes:"ring" ใน CatFace.tsx (วงกลม outline ไม่มี pupil overlay ให้ขยับเลย ดู
+  // showPupils ในไฟล์นั้น) เปลี่ยนแค่ตรงนี้อย่างเดียวจะยังไม่เห็นผลภาพอะไรจนกว่าจะแก้ CatFace.tsx
+  // ให้ idle ใช้ eyes:"gaze" ด้วย (ไฟล์นั้นตั้งใจไม่แตะรอบนี้ตามที่สั่ง)
+  const gaze = useGazeLoop({ enabled: faceState === "idle" });
 
   return (
     <div className="app">
