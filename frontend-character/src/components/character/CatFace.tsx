@@ -217,12 +217,15 @@ export default function CatFace({
   // ปากอ้าตาม amplitude เฉพาะตอน speaking (ตอนอื่นทรงปากคุมด้วย state ล้วน ๆ ตามดีไซน์เดิม)
   const mouthOpenBlend = state === "speaking" ? Math.min(1, Math.max(0, amplitude)) : 0;
 
-  // หูสลับ folded/normal ทุก 1.3 วิ ตลอดที่ยังอยู่ใน "listening" (วนจนกว่า state จะเปลี่ยน เช่น
-  // ผู้ใช้พูดจบแล้ว) — เดิมใช้ 500ms + สลับวูบไม่มี transition ผู้ใช้บอกว่าเร็วเกินไปบนจอ 13 นิ้ว
-  // อ่านเป็นจอกระตุกมากกว่าสัญญาณว่ากำลังฟัง ปรับเป็น 1300ms + fade ข้ามกลุ่ม (opacity) 220ms ให้
-  // ดูเหมือนค่อย ๆ พับแทนการสลับทันที — ยังเป็นการแอนิเมต opacity ล้วน ๆ ไม่ใช่ d/cx/cy ตรง ๆ จึงไม่
-  // ผิดข้อควรระวังบนแท็บเล็ตที่ระบุไว้ด้านล่าง (มอร์ฟรูปทรงจริงระหว่าง 2 path คนละชุดทำด้วย CSS
-  // ธรรมดาไม่ได้ อยู่แล้ว — fade คือทางที่ใกล้เคียง "ค่อย ๆ พับ" ที่สุดโดยไม่แตะ path data)
+  // หูสลับ folded/normal ทุก 1 วิ ตลอดที่ยังอยู่ใน "listening" (วนจนกว่า state จะเปลี่ยน เช่น
+  // ผู้ใช้พูดจบแล้ว) — fade ข้ามกลุ่ม (opacity) 220ms ให้ดูเหมือนค่อย ๆ พับแทนการสลับทันที ยังเป็น
+  // การแอนิเมต opacity ล้วน ๆ ไม่ใช่ d/cx/cy ตรง ๆ จึงไม่ผิดข้อควรระวังบนแท็บเล็ตที่ระบุไว้ด้านล่าง
+  // (มอร์ฟรูปทรงจริงระหว่าง 2 path คนละชุดทำด้วย CSS ธรรมดาไม่ได้อยู่แล้ว — fade คือทางที่ใกล้เคียง
+  // "ค่อย ๆ พับ" ที่สุดโดยไม่แตะ path data)
+  //
+  // พับทันที 1 ครั้งตอนเพิ่งเข้า "listening" (ไม่รอรอบแรกของ interval ก่อน — เดิมต้องรอครบ
+  // EAR_FLIP_INTERVAL_MS ก่อนหูจะขยับครั้งแรก ผู้ใช้บอกว่าดูช้าไปตอนทดสอบเสียงจริง) แล้วค่อยเริ่มนับ
+  // ลูปสลับจากจุดนั้น
   const EAR_FLIP_INTERVAL_MS = 1000;
   const EAR_FADE_MS = 220;
   const [earFlip, setEarFlip] = useState(false);
@@ -231,6 +234,7 @@ export default function CatFace({
       setEarFlip(false);
       return;
     }
+    setEarFlip(true);
     const id = setInterval(() => setEarFlip((f) => !f), EAR_FLIP_INTERVAL_MS);
     return () => clearInterval(id);
   }, [state]);
