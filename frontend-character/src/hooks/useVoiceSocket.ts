@@ -6,6 +6,13 @@ const OUTPUT_SAMPLE_RATE = 24000; // Gemini Live ส่งเสียงตอ�
 const JITTER_BUFFER_MS = 1500; // ตกลงกันไว้ตอนทำ backend (ดู voice_test.html/voice_pipeline_dev.py)
 export const LOCAL_VAD_RMS_THRESHOLD = 0.02; // ใช้ตัดสิน speech_start/speech_end ที่ส่งให้ backend จริง (ดู onaudioprocess) — export ไว้ให้ debug overlay อ้างค่าเดียวกัน ไม่ต้อง hardcode ซ้ำ
 const SILENCE_HANGOVER_MS = 500; // ต้องเงียบต่อเนื่องแค่ไหนถึงถือว่าพูดจบ กันตัดกลางคำที่มีช่วงเว้นวรรค/หายใจสั้น ๆ
+// ต้องเงียบต่อเนื่องแค่ไหนถึงจะยอมสลับ UI จาก "listening" ไป "thinking" (ค่าเดียวจุดเดียว ปรับที่นี่
+// พอ ไม่ต้อง hardcode กระจาย) — แยกจาก SILENCE_HANGOVER_MS ข้างบนโดยตั้งใจ: ตัวนั้นคุมว่าเมื่อไหร่จะ
+// ส่ง speech_end ให้ backend จริง (ต้องไวพอสมควรเพื่อไม่ให้ Gemini รอนาน) ส่วนตัวนี้คุมแค่ "ตา/หู" บน
+// จอ ไม่ให้รีสตาร์ตกลางประโยคทุกครั้งที่เว้นหายใจสั้น ๆ (0.1-0.2s) ระหว่างพูด — ยาวกว่าเพราะไม่กระทบ
+// การสนทนาจริง แค่กระทบว่าดูลื่นไหลแค่ไหน (พบจริงจากทดสอบเสียงจริง 2026-09-08: ค่าเดิมที่ไม่มี
+// hangover เลยทำให้ตากรอกรีเซ็ต/หูพับใหม่ทุกครั้งที่เว้นวรรคแม้แต่นิดเดียว)
+const LISTENING_HANGOVER_MS = 900;
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
 
 // backend รันคนละ origin กับหน้านี้ (5174 vs 8000) ต่อ WS ตรง ๆ ได้เลย ไม่ติด CORS (WS ไม่ผ่าน
@@ -115,6 +122,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const catStateRef = useRef<CatState>("idle"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
   const wasSpeechRef = useRef(false); // เดิม/จบพูดรอบล่าสุด — ใช้ส่ง speech_start/speech_end ให้ backend
   const silentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนส่ง speech_end จริง
+  const listeningSilentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนสลับ UI เป็น thinking (แยกจาก silentStreakRef ข้างบน — คนละ hangover คนละจุดประสงค์ ดู LISTENING_HANGOVER_MS)
   // true ตั้งแต่แมวเริ่มพูดจริงในเทิร์นนี้ (isBotSpeaking() ขึ้น true ครั้งแรก) — เพิ่งเจอบั๊กจริงว่า
   // tick() (รันทุก requestAnimationFrame ~60fps เร็วกว่า onaudioprocess ~85ms มาก) มี `else if
   // (catStateRef.current === "wake")` ที่เดิมตั้งใจจับแค่ "แมวพูดจบแล้ว" แต่ดันเป็น true ด้วยตอน
@@ -172,6 +180,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setTranscript("");
     wasSpeechRef.current = false; // กัน state ค้างข้ามรอบ connect (เช่น reconnect หลังกด หยุด/เริ่มใหม่)
     silentStreakRef.current = 0;
+    listeningSilentStreakRef.current = 0;
     hasBotSpokenThisTurnRef.current = false;
     setOffTopic(false);
 
@@ -279,6 +288,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     // audioCtx.sampleRate ของเครื่อง (48kHz เดสก์ท็อปทั่วไป แต่ไม่การันตี) ไม่ใช่ INPUT_SAMPLE_RATE
     const BUFFER_SIZE = 4096;
     const hangoverBuffers = Math.max(1, Math.round((SILENCE_HANGOVER_MS / 1000) * audioCtx.sampleRate / BUFFER_SIZE));
+    const listeningHangoverBuffers = Math.max(1, Math.round((LISTENING_HANGOVER_MS / 1000) * audioCtx.sampleRate / BUFFER_SIZE));
 
     micProcessor.onaudioprocess = (e) => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -347,6 +357,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           setCatStateSafe("wake");
           hasBotSpokenThisTurnRef.current = false; // เทิร์นใหม่ แมวยังไม่ได้พูดเลยสักคำ
         }
+        listeningSilentStreakRef.current = 0; // ยังพูดต่อเนื่อง (หรือกลับมาพูดทันเวลาภายใน hangover) ไม่นับว่าเงียบ
         setIsThinking(false); // เริ่มพูดรอบใหม่ ไม่ใช่ช่วงรอคำตอบเดิมแล้ว
         resetIdleTimer();
       } else if (catStateRef.current === "wake" && !isBotSpeaking()) {
@@ -354,7 +365,14 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         // ตรงนี้ แต่ตัด "web" ออกจาก CatState แล้ว (ดู types.ts, CLAUDE.md) เปลี่ยนมาใช้ isThinking
         // แทน — ให้ CatFace โชว์ "thinking" (หูหยุดสลับ+กระพริบถี่ขึ้น) แยกจาก "listening" ชัดเจน
         // เพราะช่วงนี้เงียบที่สุดในบทสนทนา ผู้ใช้ต้องเห็นว่าระบบยังทำงานอยู่ ไม่งั้นจะพูดซ้ำ
-        setIsThinking(true);
+        //
+        // ต้องรอ listeningHangoverBuffers ก่อนค่อยยอมสลับ (ไม่ใช่ทันทีที่ isSpeechNow เป็น false
+        // buffer เดียว) — พบจริงจากทดสอบเสียงจริง 2026-09-08 ว่าเว้นหายใจสั้น ๆ ระหว่างประโยค
+        // (0.1-0.2s) ทำให้ตากรอก/หูพับรีเซ็ตใหม่ทุกครั้งเหมือนเริ่มประโยคใหม่ ทั้งที่ยังพูดอยู่
+        listeningSilentStreakRef.current += 1;
+        if (listeningSilentStreakRef.current >= listeningHangoverBuffers) {
+          setIsThinking(true);
+        }
       }
     };
 
@@ -403,6 +421,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       hasBotSpokenThisTurnRef.current = false;
       wasSpeechRef.current = false;
       silentStreakRef.current = 0;
+      listeningSilentStreakRef.current = 0;
     };
   }, [isBotSpeaking, resetIdleTimer, setCatStateSafe, debugEnabled]);
 
