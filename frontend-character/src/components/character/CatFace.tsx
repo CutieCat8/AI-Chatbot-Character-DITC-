@@ -183,7 +183,11 @@ export const STATES: Record<CatFaceState, StateConfig> = {
   waking:    { eyes: "wake",  mouth: "open",    brows: "normal", ears: "normal" },
   listening: { eyes: "gaze",  mouth: "neutral", brows: "normal", ears: "folded" },
   thinking:  { eyes: "ring",  mouth: "neutral", brows: "normal", ears: "normal" },
-  idle:      { eyes: "ring",  mouth: "neutral", brows: "normal", ears: "normal" },
+  // eyes:"gaze" (แทน "ring" เดิม) ให้ตากรอกที่ App.tsx ย้ายมาไว้ตอน idle มีจุดให้ขยับจริง (showPupils
+  // ด้านล่างเช็คจาก cfg.eyes==="gaze" เท่านั้น) — ผลคือ idle ตอนนี้แยกจาก thinking ได้ด้วยตาเปล่า
+  // แล้ว (thinking ยังเป็น ring เหมือนเดิม) ส่วน idle กับ listening จะใช้ทรงตาเดียวกัน (gaze) แยก
+  // กันด้วยพฤติกรรมรูม่านตาแทน: idle กรอกไปมา, listening นิ่งกลาง (ไม่ได้เปิด useGazeLoop ให้)
+  idle:      { eyes: "gaze",  mouth: "neutral", brows: "normal", ears: "normal" },
   speaking:  { eyes: "ring",  mouth: "neutral", brows: "normal", ears: "normal" },
   angry:     { eyes: "angry", mouth: "frown",   brows: "angry",  ears: "normal", anger: true },
 };
