@@ -4,7 +4,7 @@ import type { CatState } from "../types";
 const INPUT_SAMPLE_RATE = 16000; // Gemini Live รับเสียงเข้าที่ 16kHz PCM16 mono
 const OUTPUT_SAMPLE_RATE = 24000; // Gemini Live ส่งเสียงตอบกลับมาที่ 24kHz PCM16 mono
 const JITTER_BUFFER_MS = 1500; // ตกลงกันไว้ตอนทำ backend (ดู voice_test.html/voice_pipeline_dev.py)
-const LOCAL_VAD_RMS_THRESHOLD = 0.02; // ใช้ตัดสิน speech_start/speech_end ที่ส่งให้ backend จริง (ดู onaudioprocess)
+export const LOCAL_VAD_RMS_THRESHOLD = 0.02; // ใช้ตัดสิน speech_start/speech_end ที่ส่งให้ backend จริง (ดู onaudioprocess) — export ไว้ให้ debug overlay อ้างค่าเดียวกัน ไม่ต้อง hardcode ซ้ำ
 const SILENCE_HANGOVER_MS = 500; // ต้องเงียบต่อเนื่องแค่ไหนถึงถือว่าพูดจบ กันตัดกลางคำที่มีช่วงเว้นวรรค/หายใจสั้น ๆ
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
 
@@ -30,11 +30,24 @@ interface UseVoiceSocketResult {
    * ตอน catState เป็น wake เหมือนกัน ดู docs/adr และ CLAUDE.md เรื่องแมป 7→5 states)
    */
   botSpeaking: boolean;
+  /**
+   * true ตอนผู้ใช้หยุดพูดแล้วแต่แมวยังไม่เริ่มตอบ (รอ retrieval/LLM) — ช่วงเงียบที่สุดของบทสนทนา
+   * ผู้ใช้ต้องเห็นว่าระบบยังทำงานอยู่ ไม่งั้นจะพูดซ้ำเพราะนึกว่าไม่ได้ยิน ใช้แยก "thinking" ออกจาก
+   * "listening" ตอน catState เป็น wake เหมือนกัน (เดิมค่านี้เคยเป็น catState แยกชื่อ "web" แต่ตัด
+   * ออกจาก CatState แล้วเพราะ "Web" ใน TOR หมายถึงโหมดข่าววนคนละเรื่อง — ดู CLAUDE.md)
+   */
+  isThinking: boolean;
   amplitude: number;
   transcript: string;
   errorMessage: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
+  /**
+   * ค่าดิบของ local RMS VAD ต่อเฟรม — มีค่าจริงเฉพาะตอนเปิด `{ debug: true }` เท่านั้น (ปิดไว้เป็น
+   * ปกติกันการ re-render ถี่เกินจำเป็นตอนใช้งานจริง) สำหรับ debug overlay (`?debug=1`) ดูค่า RMS
+   * เทียบ threshold สดตอนพูดจริง ก่อนตัดสินใจปรับ LOCAL_VAD_RMS_THRESHOLD/hangover ร่วมกัน
+   */
+  debugVad: { rms: number; isSpeechNow: boolean; wasSpeech: boolean } | null;
 }
 
 function floatTo16BitPCM(float32: Float32Array): ArrayBuffer {
@@ -70,10 +83,13 @@ function rmsOf(float32: Float32Array): number {
  *      อยู่ในเส้นทางเล่นเสียงจริง ไม่ใช่วัดตอนเพิ่งรับข้อมูลมาจาก WS (ซึ่งจะเพี้ยนไปหน้า jitter
  *      buffer ~1.5s ทำให้ปากขยับก่อนเสียงจริงจะดังก็ได้)
  */
-export function useVoiceSocket(): UseVoiceSocketResult {
+export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketResult {
+  const debugEnabled = opts.debug ?? false;
   const [connectionState, setConnectionState] = useState<VoiceConnectionState>("idle");
   const [catState, setCatState] = useState<CatState>("idle");
   const [botSpeaking, setBotSpeaking] = useState(false);
+  const [debugVad, setDebugVad] = useState<UseVoiceSocketResult["debugVad"]>(null);
+  const [isThinking, setIsThinking] = useState(false);
   const [amplitude, setAmplitude] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -129,6 +145,8 @@ export function useVoiceSocket(): UseVoiceSocketResult {
     setCatStateSafe("idle");
     setAmplitude(0);
     setBotSpeaking(false);
+    setIsThinking(false);
+    setDebugVad(null);
   }, [setCatStateSafe]);
 
   const connect = useCallback(async () => {
@@ -205,6 +223,7 @@ export function useVoiceSocket(): UseVoiceSocketResult {
       setBotSpeaking(speaking);
       if (speaking) {
         if (catStateRef.current !== "wake") setCatStateSafe("wake");
+        setIsThinking(false); // แมวเริ่มพูดจริงแล้ว เลิกนับว่าเป็นช่วงรอคำตอบ
         resetIdleTimer();
       } else if (catStateRef.current === "wake") {
         // เพิ่งพูดจบ (เสียงเล่นหมดคิวแล้ว) — แฟลช transition สั้น ๆ แล้วกลับ idle
@@ -272,6 +291,11 @@ export function useVoiceSocket(): UseVoiceSocketResult {
       // แค่ 1 ครั้ง (~85ms ที่ 48kHz เว้นวรรค/หายใจกลางประโยค) ตัด activity_end กลางคำถามที่ยังพูดไม่จบ
       const localRms = rmsOf(resampled);
       const isSpeechNow = localRms > LOCAL_VAD_RMS_THRESHOLD;
+      // อัปเดตเฉพาะตอนเปิด debug (opts.debug) เท่านั้น — กัน re-render ทุก ~85ms (ความถี่ของ
+      // onaudioprocess ที่ buffer 4096 @48kHz) ตอนใช้งานจริงที่ไม่ได้ต้องการเลย
+      if (debugEnabled) {
+        setDebugVad({ rms: localRms, isSpeechNow, wasSpeech: wasSpeechRef.current });
+      }
       if (isSpeechNow) {
         silentStreakRef.current = 0;
         if (!wasSpeechRef.current) {
@@ -297,9 +321,14 @@ export function useVoiceSocket(): UseVoiceSocketResult {
       // ส่วนนี้แค่ขยับ cat state ให้ตอบสนองไว (UI ล้วน ๆ แยกจาก speech_start/end ด้านบน)
       if (isSpeechNow) {
         if (catStateRef.current === "idle" || catStateRef.current === "sleep") setCatStateSafe("wake");
+        setIsThinking(false); // เริ่มพูดรอบใหม่ ไม่ใช่ช่วงรอคำตอบเดิมแล้ว
         resetIdleTimer();
       } else if (catStateRef.current === "wake" && !isBotSpeaking()) {
-        setCatStateSafe("web"); // หยุดพูดแล้ว รอคำตอบ (retrieval/LLM กำลังทำงาน)
+        // ผู้ใช้หยุดพูดแล้วแต่แมวยังไม่เริ่มตอบ (รอ retrieval/LLM) — เดิม catState เคยตั้งเป็น "web"
+        // ตรงนี้ แต่ตัด "web" ออกจาก CatState แล้ว (ดู types.ts, CLAUDE.md) เปลี่ยนมาใช้ isThinking
+        // แทน — ให้ CatFace โชว์ "thinking" (หูหยุดสลับ+กระพริบถี่ขึ้น) แยกจาก "listening" ชัดเจน
+        // เพราะช่วงนี้เงียบที่สุดในบทสนทนา ผู้ใช้ต้องเห็นว่าระบบยังทำงานอยู่ ไม่งั้นจะพูดซ้ำ
+        setIsThinking(true);
       }
     };
 
@@ -328,9 +357,9 @@ export function useVoiceSocket(): UseVoiceSocketResult {
     ws.onclose = () => {
       setConnectionState((prev) => (prev === "error" ? prev : "closed"));
     };
-  }, [isBotSpeaking, resetIdleTimer, setCatStateSafe]);
+  }, [isBotSpeaking, resetIdleTimer, setCatStateSafe, debugEnabled]);
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
 
-  return { connectionState, catState, botSpeaking, amplitude, transcript, errorMessage, connect, disconnect };
+  return { connectionState, catState, botSpeaking, isThinking, amplitude, transcript, errorMessage, connect, disconnect, debugVad };
 }

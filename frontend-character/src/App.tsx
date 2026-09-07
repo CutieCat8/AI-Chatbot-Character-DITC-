@@ -1,37 +1,44 @@
 import { useRef, useState } from "react";
-import CatFace, { type CatFaceState } from "./components/character/CatFace";
+import CatFace, { type CatFaceState, useBlink, useGazeLoop } from "./components/character/CatFace";
 import CharacterPage from "./components/character/CharacterPage";
 import { ControlPanel } from "./components/ControlPanel";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
 import { useAmplitude } from "./hooks/useAmplitude";
-import { useVoiceSocket } from "./hooks/useVoiceSocket";
+import { LOCAL_VAD_RMS_THRESHOLD, useVoiceSocket } from "./hooks/useVoiceSocket";
 import type { CatState } from "./types";
 import "./App.css";
 
 type Mode = "file-test" | "live-voice" | "figma-preview";
 
 /**
- * แปลง CatState เดิม (5 ค่าตามสโคป TOR) เป็น CatFaceState ใหม่ (7 render-state จาก Figma) —
- * ดูตารางแมปเต็มที่ CLAUDE.md หัวข้อ "ข้อกำหนดที่ห้ามละเมิด"
+ * แปลง CatState เดิม (4 ค่าตามสโคป TOR จริง: Idle/Transition/Sleep/Wake) เป็น CatFaceState ใหม่
+ * (7 render-state จาก Figma) — ดูตารางแมปเต็มที่ CLAUDE.md หัวข้อ "ข้อกำหนดที่ห้ามละเมิด"
  *
- * จุดที่ต้องแยกเอง: catState==="wake" เดิมตั้งทั้งตอนผู้ใช้พูดและตอนแมวพูด (ดูคอมเมนต์ใน
- * useVoiceSocket.ts) แยกด้วย `botSpeaking` ที่เพิ่มเข้ามาต่างหาก ถึงจะรู้ว่าควรโชว์ตา "listening"
- * (ตอนฟังผู้ใช้) หรือปาก "speaking" ที่ขยับตาม amplitude จริง (ตอนแมวพูดตอบ)
+ * จุดที่ต้องแยกเอง: catState==="wake" เดิมตั้งทั้งตอนผู้ใช้พูด, ตอนแมวพูด, และตอนรอ Gemini ตอบ
+ * (ดูคอมเมนต์ใน useVoiceSocket.ts) แยกด้วย `botSpeaking`/`isThinking` ที่เพิ่มเข้ามาต่างหาก:
+ *   - botSpeaking=true  -> "speaking" (ปากขยับตาม amplitude จริง)
+ *   - isThinking=true   -> "thinking" (หยุดพูดแล้ว รอคำตอบ — ต้องแยกจาก listening ให้ชัด ไม่งั้น
+ *                          ผู้ใช้เห็นแมวเหมือนยังฟังอยู่ทั้งที่พูดจบไปแล้ว อาจพูดซ้ำเพราะนึกว่าไม่ได้ยิน)
+ *   - ไม่เข้าเงื่อนไขไหนเลย -> "listening" (กำลังฟังผู้ใช้พูดอยู่จริง)
  */
-function toCatFaceState(state: CatState, botSpeaking: boolean): CatFaceState {
+function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boolean): CatFaceState {
   switch (state) {
     case "sleep":
       return "sleeping";
     case "wake":
-      return botSpeaking ? "speaking" : "listening";
-    case "web":
-      return "thinking"; // "Web" ในสโคปเดิม = ช่วงกำลังค้น/ประมวลผล ไม่ใช่หน้าเว็บบนจอ (ยืนยันแล้วกับผู้ใช้)
+      if (botSpeaking) return "speaking";
+      if (isThinking) return "thinking";
+      return "listening";
     case "transition":
     case "idle":
     default:
       return "idle";
   }
 }
+
+// ?debug=1 เปิด overlay โชว์ RMS/threshold สดของ local VAD — ไว้ให้ผู้ใช้ทดสอบด้วยเสียงจริงแล้ว
+// ตัดสินใจเรื่องปรับ threshold/hangover ร่วมกัน (ยังไม่แก้ logic การตรวจจับใด ๆ ในรอบนี้)
+const isDebug = new URLSearchParams(window.location.search).get("debug") === "1";
 
 export function App() {
   const [mode, setMode] = useState<Mode>("live-voice");
@@ -70,13 +77,22 @@ export function App() {
   };
 
   // ---- โหมดคุยด้วยเสียงจริง (Gemini Live ผ่าน backend WS) ----
-  const voice = useVoiceSocket();
+  const voice = useVoiceSocket({ debug: isDebug });
 
   const displayState = mode === "live-voice" ? voice.catState : fileTestState;
   const displayAmplitude = mode === "live-voice" ? voice.amplitude : isPlaying ? fileAmplitude : 0;
   // file-test ไม่มีไมค์ผู้ใช้จริง เสียงที่เล่นคือเสียงแมวเสมอ ("wake" ในโหมดนี้ = กำลังเล่นไฟล์เสียง)
+  // และไม่มีแนวคิด "รอ Gemini ตอบ" เลย (ไม่ได้ยิง retrieval จริง) เลย isThinking เป็น false เสมอ
   const displayBotSpeaking = mode === "live-voice" ? voice.botSpeaking : isPlaying;
-  const faceState = toCatFaceState(displayState, displayBotSpeaking);
+  const displayIsThinking = mode === "live-voice" ? voice.isThinking : false;
+  const faceState = toCatFaceState(displayState, displayBotSpeaking, displayIsThinking);
+
+  // เดิม App.tsx ไม่เคยส่ง gaze/blink ให้ CatFace เลย (ตาค้างนิ่งตลอด) — ใช้ logic เดียวกับที่
+  // CharacterPage.tsx (หน้าพรีวิว) ใช้: กระพริบตลอดยกเว้นตอนหลับ (ถี่ขึ้นตอน thinking ให้ดูต่างจาก
+  // listening ชัดเจน — หูก็หยุดสลับกลับเป็นท่าปกติตอน thinking ด้วย ดู CatFace.tsx), ตากลอกเฉพาะ
+  // ตอน "listening"
+  const blink = useBlink({ enabled: faceState !== "sleeping", rate: faceState === "thinking" ? 0.45 : 1 });
+  const gaze = useGazeLoop({ enabled: faceState === "listening" });
 
   return (
     <div className="app">
@@ -108,7 +124,7 @@ export function App() {
           <CharacterPage />
         ) : (
           <div className="app-stage">
-            <CatFace state={faceState} amplitude={displayAmplitude} />
+            <CatFace state={faceState} amplitude={displayAmplitude} gaze={gaze} blink={blink} />
           </div>
         )}
       </div>
@@ -133,6 +149,34 @@ export function App() {
           hasAudio={hasAudio}
           amplitude={fileAmplitude}
         />
+      )}
+
+      {isDebug && mode === "live-voice" && (
+        <div
+          style={{
+            position: "fixed",
+            top: 12,
+            left: 12,
+            background: "rgba(0,0,0,0.75)",
+            color: "#0f0",
+            fontFamily: "monospace",
+            fontSize: 13,
+            padding: "10px 14px",
+            borderRadius: 8,
+            lineHeight: 1.6,
+            pointerEvents: "none",
+            zIndex: 999,
+          }}
+        >
+          <div>?debug=1 — local VAD (useVoiceSocket.ts)</div>
+          <div>threshold: {LOCAL_VAD_RMS_THRESHOLD.toFixed(4)}</div>
+          <div>
+            rms: {(voice.debugVad?.rms ?? 0).toFixed(4)}{" "}
+            {voice.debugVad && (voice.debugVad.rms > LOCAL_VAD_RMS_THRESHOLD ? "(> threshold)" : "(<= threshold)")}
+          </div>
+          <div>isSpeechNow: {String(voice.debugVad?.isSpeechNow ?? false)}</div>
+          <div>wasSpeech: {String(voice.debugVad?.wasSpeech ?? false)}</div>
+        </div>
       )}
     </div>
   );
