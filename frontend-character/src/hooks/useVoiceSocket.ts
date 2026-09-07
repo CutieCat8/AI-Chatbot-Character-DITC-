@@ -13,6 +13,17 @@ const SILENCE_HANGOVER_MS = 500; // ต้องเงียบต่อเน�
 // การสนทนาจริง แค่กระทบว่าดูลื่นไหลแค่ไหน (พบจริงจากทดสอบเสียงจริง 2026-09-08: ค่าเดิมที่ไม่มี
 // hangover เลยทำให้ตากรอกรีเซ็ต/หูพับใหม่ทุกครั้งที่เว้นวรรคแม้แต่นิดเดียว)
 const LISTENING_HANGOVER_MS = 900;
+// ต้องเห็น !isBotSpeaking() ต่อเนื่องนานแค่ไหนก่อนยอมรับว่าแมวพูดจบเทิร์นจริง ๆ (ค่าเดียวจุดเดียว
+// ปรับที่นี่พอ) — คุมแค่จังหวะเคลียร์ offTopic + เปลี่ยน wake -> transition -> idle ใน tick() เท่านั้น
+// ไม่กระทบ ws.onclose ที่ต้องเคลียร์ทันทีเสมอ (WS หลุดจริงไม่ใช่แค่ช่องว่างในคิวเสียง)
+//
+// เจอจริงจาก log ผู้ใช้ทดสอบ (2026-09-08): คิวเสียงที่ต่อกันเป็นก้อน ๆ (scheduleChunk คนละก้อน) มีช่อง
+// ว่างจริงระหว่างก้อนสั้นแค่ ~7ms (nextPlayTimeRef คลาดกับ ctxTime นิดเดียว) ก่อนก้อนถัดไปจะเริ่มเล่น
+// ต่ออีก ~90ms ถัดมา — tick() วิ่งที่ ~60fps (เร็วกว่าจังหวะนี้มาก) เห็นช่องว่างนั้นพอดีเฟรมเดียวแล้ว
+// เข้าใจผิดว่าแมวพูดจบทั้งเทิร์น เคลียร์ offTopic ทั้งที่ยังพูดต่ออีก 90ms ถัดมาจริง ๆ (หน้าโกรธ
+// แว้บหาย) ตั้งค่าไว้เผื่อเยอะกว่าช่องว่างจริงที่เจอมาก (7-90ms) เพราะไม่กระทบความไวของบทสนทนา
+// (ผู้ใช้ไม่เห็นหน้า listening/thinking ช้าลง — คุมแค่ตอนแมวพูดจบแล้วเท่านั้น)
+const BOT_SPEECH_END_HANGOVER_MS = 700;
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
 
 // backend รันคนละ origin กับหน้านี้ (5174 vs 8000) ต่อ WS ตรง ๆ ได้เลย ไม่ติด CORS (WS ไม่ผ่าน
@@ -132,6 +143,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   // ทิ้งไปก่อนจะมีโอกาสได้แสดงผลเลยด้วยซ้ำ — ต้องรู้ก่อนว่าแมว "เคยพูดจริงในเทิร์นนี้แล้ว" ถึงจะยอม
   // reset กลับ idle ได้
   const hasBotSpokenThisTurnRef = useRef(false);
+  // performance.now() ตอนแรกที่ tick() เห็น !isBotSpeaking() ระหว่างเทิร์นที่แมวเคยพูดแล้ว (สำหรับนับ
+  // hangover ก่อนยอมรับว่าจบเทิร์นจริง — ดู BOT_SPEECH_END_HANGOVER_MS) null = ยังไม่เห็นช่องว่างเลย
+  // หรือแมวกลับมาพูดต่อแล้วก่อนครบ hangover (reset กลับ null ทุกครั้งที่ speaking กลับมา true)
+  const botSpeechEndSinceRef = useRef<number | null>(null);
 
   const setCatStateSafe = useCallback((s: CatState) => {
     catStateRef.current = s;
@@ -175,23 +190,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   }, [setCatStateSafe]);
 
   const connect = useCallback(async () => {
-    // DEBUG ชั่วคราว (angry race condition, ดู CLAUDE.md/commit message) — เก็บ log ลง
-    // window.__angryLogLines ด้วย (ไม่ใช่แค่ console.log เฉย ๆ) เพื่อให้พิมพ์ window.__angryLog() ใน
-    // console แล้วก๊อปข้อความทั้งก้อนออกมาทีเดียวได้เลย ไม่ต้องไล่ก๊อปทีละบรรทัด อยู่ข้ามรอบ
-    // connect/disconnect ได้ (ไม่ล้าง array ทุกครั้งที่ connect ใหม่) ตั้งใจใช้ (window as any) เพราะ
-    // เป็นโค้ด debug ชั่วคราว ไม่คุ้มจะประกาศ global type ให้ — ต้องลบออกทั้งหมดตอนปิดเคสนี้
-    const angryDebug = (msg: string) => {
-      const line = `[ANGRY-DEBUG ${performance.now().toFixed(0)}] ${msg}`;
-      console.log(line);
-      const w = window as unknown as { __angryLogLines?: string[] };
-      if (!w.__angryLogLines) w.__angryLogLines = [];
-      w.__angryLogLines.push(line);
-    };
-    (window as unknown as { __angryLog?: () => void }).__angryLog = () => {
-      const w = window as unknown as { __angryLogLines?: string[] };
-      console.log((w.__angryLogLines ?? []).join("\n"));
-    };
-
     setErrorMessage(null);
     setConnectionState("connecting");
     setTranscript("");
@@ -199,6 +197,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     silentStreakRef.current = 0;
     listeningSilentStreakRef.current = 0;
     hasBotSpokenThisTurnRef.current = false;
+    botSpeechEndSinceRef.current = null;
     setOffTopic(false);
 
     const audioCtx = new AudioContext();
@@ -252,7 +251,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     // วน rAF อ่าน amplitude จาก analyser ต่อเนื่อง + คุม cat state ตามว่าแมวพูดอยู่ไหม
     const buf = new Uint8Array(analyser.frequencyBinCount);
     let smoothed = 0;
-    let prevSpeakingForLog = false; // DEBUG ชั่วคราว (ดูหัวข้อ angry race condition) — จับทุกครั้งที่ speaking สลับ ไม่ใช่แค่ครั้งแรกของเทิร์น
     const tick = () => {
       analyser.getByteTimeDomainData(buf);
       let sumSquares = 0;
@@ -266,29 +264,32 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       setAmplitude(smoothed);
 
       const speaking = isBotSpeaking();
-      if (speaking !== prevSpeakingForLog) {
-        angryDebug(`botSpeaking edge: ${prevSpeakingForLog} -> ${speaking} (hasBotSpokenThisTurnRef=${hasBotSpokenThisTurnRef.current}, catState=${catStateRef.current}, offTopic-state-var=?, nextPlayTime=${nextPlayTimeRef.current.toFixed(3)}, ctxTime=${audioCtx.currentTime.toFixed(3)})`);
-        prevSpeakingForLog = speaking;
-      }
       setBotSpeaking(speaking);
       if (speaking) {
         if (catStateRef.current !== "wake") setCatStateSafe("wake");
         setIsThinking(false); // แมวเริ่มพูดจริงแล้ว เลิกนับว่าเป็นช่วงรอคำตอบ
-        if (!hasBotSpokenThisTurnRef.current) {
-          angryDebug(`hasBotSpokenThisTurnRef -> true`);
-        }
         hasBotSpokenThisTurnRef.current = true; // ยืนยันแล้วว่าเทิร์นนี้แมวได้พูดจริง ไม่ใช่แค่เงียบเฉย ๆ
+        botSpeechEndSinceRef.current = null; // ยังพูดต่ออยู่จริง (หรือกลับมาพูดต่อทันภายใน hangover) ยกเลิกนับถอยหลังจบเทิร์น
         resetIdleTimer();
       } else if (catStateRef.current === "wake" && hasBotSpokenThisTurnRef.current) {
         // ต้องเช็ค hasBotSpokenThisTurnRef ด้วย ไม่ใช่แค่ !speaking — ไม่งั้น branch นี้ทำงานทันทีตอน
         // ผู้ใช้เพิ่งพูดจบเหมือนกัน (isBotSpeaking() เป็น false พอ ๆ กันทั้งสองกรณี) ทั้งที่ Gemini
         // ยังไม่ทันเริ่มตอบเลย (ดูคอมเมนต์ที่ hasBotSpokenThisTurnRef ด้านบน)
-        angryDebug(`tick(): wake+hasBotSpokenThisTurnRef=true+!speaking -> transition, clearing offTopic here`);
-        setCatStateSafe("transition");
-        setOffTopic(false); // จบเทิร์นแล้วจริง ๆ (แมวพูดจบแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
-        setTimeout(() => {
-          if (catStateRef.current === "transition") setCatStateSafe("idle");
-        }, 400);
+        //
+        // เจอ race condition อีกชั้น (2026-09-08 log จริง): คิวเสียงระหว่างก้อน scheduleChunk มีช่องว่าง
+        // จริงสั้น ๆ (7-90ms) ที่ isBotSpeaking() เป็น false ชั่วขณะทั้งที่ยังพูดต่ออีกก้อนถัดไปแน่ ๆ
+        // ต้องรอ BOT_SPEECH_END_HANGOVER_MS ต่อเนื่องก่อนยอมรับว่าจบเทิร์นจริง ไม่ใช่ทำทันทีเฟรมแรกที่
+        // เห็น !speaking (เหมือนที่ทำกับ listening -> thinking ด้วย listeningSilentStreakRef)
+        if (botSpeechEndSinceRef.current === null) {
+          botSpeechEndSinceRef.current = performance.now();
+        } else if (performance.now() - botSpeechEndSinceRef.current >= BOT_SPEECH_END_HANGOVER_MS) {
+          setCatStateSafe("transition");
+          setOffTopic(false); // จบเทิร์นแล้วจริง ๆ (แมวพูดจบแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
+          botSpeechEndSinceRef.current = null;
+          setTimeout(() => {
+            if (catStateRef.current === "transition") setCatStateSafe("idle");
+          }, 400);
+        }
       }
       rafIdRef.current = requestAnimationFrame(tick);
     };
@@ -381,7 +382,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       if (isSpeechNow) {
         if (catStateRef.current === "idle" || catStateRef.current === "sleep") {
           setCatStateSafe("wake");
-          angryDebug(`new turn starts (idle/sleep -> wake) -> hasBotSpokenThisTurnRef=false`);
           hasBotSpokenThisTurnRef.current = false; // เทิร์นใหม่ แมวยังไม่ได้พูดเลยสักคำ
         }
         listeningSilentStreakRef.current = 0; // ยังพูดต่อเนื่อง (หรือกลับมาพูดทันเวลาภายใน hangover) ไม่นับว่าเงียบ
@@ -421,7 +421,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           // keyword ใน transcript ห้าม guess เด็ดขาดตามที่ตกลงกันไว้) มาถึงก่อนเสียงตอบจะเริ่มเล่น
           // เสมอ (ระหว่างรอ tool_call resolve) ต้องหมดอายุเองหลังบอทพูดจบ — reset ที่จุดเดียวกับที่
           // "wake" -> "transition" -> "idle" ทำงานใน tick() ด้านล่าง ไม่ใช่ค้างโกรธข้ามเทิร์นถัดไป
-          angryDebug(`off_topic received from WS -> offTopic=true`);
           setOffTopic(true);
         }
       } else if (event.data instanceof ArrayBuffer) {
@@ -440,7 +439,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       // เคลียร์กลับ idle ให้ครบเหมือนตอน disconnect() ปกติ — ต้อง clear idleTimerRef ด้วย ไม่งั้น
       // ถ้ามี timer ค้างจากก่อนหน้า (ตั้งไว้จาก resetIdleTimer() รอบล่าสุดตอนยังเชื่อมต่ออยู่) มันจะ
       // ยิง setCatStateSafe("sleep") ทับ idle ที่เพิ่ง set ไปหลังจากนี้อีกที (เจอจริงตอนทดสอบ)
-      angryDebug(`ws.onclose -> clearing offTopic (unexpected close)`);
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       setCatStateSafe("idle");
       setBotSpeaking(false);
@@ -448,6 +446,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       setOffTopic(false);
       setAmplitude(0);
       hasBotSpokenThisTurnRef.current = false;
+      botSpeechEndSinceRef.current = null;
       wasSpeechRef.current = false;
       silentStreakRef.current = 0;
       listeningSilentStreakRef.current = 0;
