@@ -219,8 +219,27 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     analyser.connect(audioCtx.destination);
     analyserRef.current = analyser;
 
+    // แต่ละก้อนเสียงจาก Gemini เป็น PCM ที่ตัดมาเป็นช่วง ๆ ตามจังหวะสตรีม ไม่ได้ตัดตรง zero-crossing
+    // เอามาต่อกันตรง ๆ (scheduleChunk เดิม) แล้วค่าคลื่นที่รอยต่อกระโดดกะทันหันเกือบทุกรอยต่อ ได้ยิน
+    // เป็นเสียงติ๊ก/ป็อบสม่ำเสมอตลอดคำตอบ (พบจริงจากรายงานผู้ใช้ 2026-09-08) — fade เข้า/ออกสั้น ๆ ที่
+    // ต้น-ปลายของทุกก้อนก่อนเล่น (ทำในระดับ sample ตรง ๆ ไม่ผ่าน GainNode/AudioParam เพื่อกันปัญหาความ
+    // แม่นยำของการ schedule automation ข้าม node) 3ms สั้นพอไม่ทำให้เสียงเพี้ยน/หายไปได้ยิน
+    const CHUNK_FADE_S = 0.003;
+    const applyChunkFade = (samples: Float32Array) => {
+      const fadeSamples = Math.min(
+        Math.round(CHUNK_FADE_S * OUTPUT_SAMPLE_RATE),
+        Math.floor(samples.length / 2), // กันเคส chunk สั้นกว่า fade เอง (chunk สุดท้ายอาจสั้นมาก)
+      );
+      for (let i = 0; i < fadeSamples; i++) {
+        const ramp = i / fadeSamples;
+        samples[i] *= ramp;
+        samples[samples.length - 1 - i] *= ramp;
+      }
+    };
+
     const scheduleChunk = (arrayBuffer: ArrayBuffer) => {
       const float32 = pcm16ToFloat32(arrayBuffer);
+      applyChunkFade(float32);
       const buffer = audioCtx.createBuffer(1, float32.length, OUTPUT_SAMPLE_RATE);
       buffer.copyToChannel(float32, 0);
       const source = audioCtx.createBufferSource();
