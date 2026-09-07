@@ -219,6 +219,23 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     analyser.connect(audioCtx.destination);
     analyserRef.current = analyser;
 
+    // DEBUG ชั่วคราว (สืบเสียงติ๊ด รอบใหม่ 2026-09-08 หลังถอด fade แล้วผู้ใช้ชี้ว่า fade เองคือตัวสร้าง
+    // รอยกระโดด ไม่ใช่ตัวแก้) — เก็บ log ลง window.__clickLogLines ด้วย (ไม่ใช่แค่ console.log เฉย ๆ)
+    // ให้พิมพ์ window.__clickLog() ใน console แล้วได้ข้อความทั้งก้อนออกมาก๊อปทีเดียวได้เลย เหมือน
+    // window.__angryLog() ที่ถอดไปแล้ว (คนละเรื่องกัน ตั้งชื่อแยกกันชัดเจน ไม่ปนกับของเก่า) ต้องลบออก
+    // ทั้งหมดตอนปิดเคสนี้
+    const clickDebug = (msg: string) => {
+      const line = `[CLICK-DEBUG ${performance.now().toFixed(0)}] ${msg}`;
+      console.log(line);
+      const w = window as unknown as { __clickLogLines?: string[] };
+      if (!w.__clickLogLines) w.__clickLogLines = [];
+      w.__clickLogLines.push(line);
+    };
+    (window as unknown as { __clickLog?: () => void }).__clickLog = () => {
+      const w = window as unknown as { __clickLogLines?: string[] };
+      console.log((w.__clickLogLines ?? []).join("\n"));
+    };
+
     const scheduleChunk = (arrayBuffer: ArrayBuffer) => {
       const float32 = pcm16ToFloat32(arrayBuffer);
       const buffer = audioCtx.createBuffer(1, float32.length, OUTPUT_SAMPLE_RATE);
@@ -227,7 +244,15 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       source.buffer = buffer;
       source.connect(outputGain);
       const now = audioCtx.currentTime;
-      if (nextPlayTimeRef.current < now) nextPlayTimeRef.current = now;
+      if (nextPlayTimeRef.current < now) {
+        // คิวไล่ไม่ทัน (buffer underrun) — จุดนี้ทำให้เกิด "ช่องว่างจริง" ในเสียง (เงียบ now -
+        // nextPlayTimeRef วินาที ก่อนก้อนนี้จะเริ่มเล่น) ต่างจาก fade ที่ถอดไปแล้วซึ่งสร้างรอยกระโดด
+        // เอง ทั้งที่ไม่มีช่องว่างจริง — ถ้าเจอ log นี้บ่อยระหว่างคำตอบเดียว แปลว่านี่คือต้นเหตุจริง
+        clickDebug(
+          `buffer underrun: nextPlayTime=${nextPlayTimeRef.current.toFixed(4)} now=${now.toFixed(4)} gap=${(now - nextPlayTimeRef.current).toFixed(4)}s`,
+        );
+        nextPlayTimeRef.current = now;
+      }
       source.start(nextPlayTimeRef.current);
       nextPlayTimeRef.current += buffer.duration;
     };
