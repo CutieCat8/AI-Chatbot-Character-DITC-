@@ -115,6 +115,15 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const catStateRef = useRef<CatState>("idle"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
   const wasSpeechRef = useRef(false); // เดิม/จบพูดรอบล่าสุด — ใช้ส่ง speech_start/speech_end ให้ backend
   const silentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนส่ง speech_end จริง
+  // true ตั้งแต่แมวเริ่มพูดจริงในเทิร์นนี้ (isBotSpeaking() ขึ้น true ครั้งแรก) — เพิ่งเจอบั๊กจริงว่า
+  // tick() (รันทุก requestAnimationFrame ~60fps เร็วกว่า onaudioprocess ~85ms มาก) มี `else if
+  // (catStateRef.current === "wake")` ที่เดิมตั้งใจจับแค่ "แมวพูดจบแล้ว" แต่ดันเป็น true ด้วยตอน
+  // "ผู้ใช้เพิ่งพูดจบ ยังไม่ทันถึงคิวแมวตอบ" เหมือนกัน (isBotSpeaking() เป็น false ทั้งคู่) เลย
+  // reset เป็น idle ภายใน 400ms หลังผู้ใช้เงียบ ทั้งที่ Gemini ยังไม่ทันตอบเลย (ต้องรอ tool call +
+  // JITTER_BUFFER_MS 1.5s ก่อน isBotSpeaking() จะ true จริง) ผลคือ isThinking/offTopic ถูกเคลียร์
+  // ทิ้งไปก่อนจะมีโอกาสได้แสดงผลเลยด้วยซ้ำ — ต้องรู้ก่อนว่าแมว "เคยพูดจริงในเทิร์นนี้แล้ว" ถึงจะยอม
+  // reset กลับ idle ได้
+  const hasBotSpokenThisTurnRef = useRef(false);
 
   const setCatStateSafe = useCallback((s: CatState) => {
     catStateRef.current = s;
@@ -163,6 +172,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setTranscript("");
     wasSpeechRef.current = false; // กัน state ค้างข้ามรอบ connect (เช่น reconnect หลังกด หยุด/เริ่มใหม่)
     silentStreakRef.current = 0;
+    hasBotSpokenThisTurnRef.current = false;
     setOffTopic(false);
 
     const audioCtx = new AudioContext();
@@ -233,12 +243,14 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       if (speaking) {
         if (catStateRef.current !== "wake") setCatStateSafe("wake");
         setIsThinking(false); // แมวเริ่มพูดจริงแล้ว เลิกนับว่าเป็นช่วงรอคำตอบ
+        hasBotSpokenThisTurnRef.current = true; // ยืนยันแล้วว่าเทิร์นนี้แมวได้พูดจริง ไม่ใช่แค่เงียบเฉย ๆ
         resetIdleTimer();
-      } else if (catStateRef.current === "wake") {
-        // เพิ่งพูดจบ (เสียงเล่นหมดคิวแล้ว) — แฟลช transition สั้น ๆ แล้วกลับ idle
-        // offTopic หมดอายุตรงนี้ด้วย (จบเทิร์นแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
+      } else if (catStateRef.current === "wake" && hasBotSpokenThisTurnRef.current) {
+        // ต้องเช็ค hasBotSpokenThisTurnRef ด้วย ไม่ใช่แค่ !speaking — ไม่งั้น branch นี้ทำงานทันทีตอน
+        // ผู้ใช้เพิ่งพูดจบเหมือนกัน (isBotSpeaking() เป็น false พอ ๆ กันทั้งสองกรณี) ทั้งที่ Gemini
+        // ยังไม่ทันเริ่มตอบเลย (ดูคอมเมนต์ที่ hasBotSpokenThisTurnRef ด้านบน)
         setCatStateSafe("transition");
-        setOffTopic(false);
+        setOffTopic(false); // จบเทิร์นแล้วจริง ๆ (แมวพูดจบแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
         setTimeout(() => {
           if (catStateRef.current === "transition") setCatStateSafe("idle");
         }, 400);
@@ -331,7 +343,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
 
       // ส่วนนี้แค่ขยับ cat state ให้ตอบสนองไว (UI ล้วน ๆ แยกจาก speech_start/end ด้านบน)
       if (isSpeechNow) {
-        if (catStateRef.current === "idle" || catStateRef.current === "sleep") setCatStateSafe("wake");
+        if (catStateRef.current === "idle" || catStateRef.current === "sleep") {
+          setCatStateSafe("wake");
+          hasBotSpokenThisTurnRef.current = false; // เทิร์นใหม่ แมวยังไม่ได้พูดเลยสักคำ
+        }
         setIsThinking(false); // เริ่มพูดรอบใหม่ ไม่ใช่ช่วงรอคำตอบเดิมแล้ว
         resetIdleTimer();
       } else if (catStateRef.current === "wake" && !isBotSpeaking()) {
