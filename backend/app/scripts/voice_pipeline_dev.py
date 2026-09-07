@@ -63,7 +63,7 @@ from silero_vad import load_silero_vad
 from websockets.exceptions import WebSocketException
 
 from app.config import settings
-from app.routers.voice import MODEL, SEARCH_FUNCTION, SYSTEM_INSTRUCTION, run_retrieval
+from app.routers.voice import MODEL, OFF_TOPIC_FUNCTION, SEARCH_FUNCTION, SYSTEM_INSTRUCTION, run_retrieval
 from app.services.speech_boundary import BoundaryEvent, SpeechBoundaryTracker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -231,7 +231,10 @@ class ConversationSession:
             # อัตโนมัติ ดู CLAUDE.md) ยังกันบั๊กเดิมได้เหมือนกันเพราะไม่เปิดกว้างสุ่มไปทุกภาษาอีกต่อไป
             input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH", "en-US"]),
             system_instruction=SYSTEM_INSTRUCTION,
-            tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
+            # ต้องมี OFF_TOPIC_FUNCTION คู่กับ SEARCH_FUNCTION เสมอ เพราะ SYSTEM_INSTRUCTION (import
+            # มาจาก routers/voice.py ตัวเดียวกัน) สั่งให้เรียก flag_off_topic ไว้แล้ว — ถ้าประกาศ
+            # tool ไม่ครบ Gemini จะถูกสั่งให้เรียก tool ที่ไม่มีอยู่จริงใน config นี้
+            tools=[types.Tool(function_declarations=[SEARCH_FUNCTION, OFF_TOPIC_FUNCTION])],
             # ปิด automatic_activity_detection ของ Gemini เอง + ส่ง activity_start/activity_end มือเอง
             # จาก VAD ของเราแทน (2026-09-06, แก้บั๊ก "คุยได้แค่รอบเดียวต่อการกดปุ่ม") — วินิจฉัยแล้วว่า
             # AAD ของโมเดลนี้ (gemini-3.1-flash-live-preview) ตรวจจับ "เริ่มพูด" ได้แค่ครั้งแรกของ
@@ -322,6 +325,15 @@ class ConversationSession:
                     async for response in session.receive():
                         if response.tool_call:
                             for fc in response.tool_call.function_calls:
+                                if fc.name == "flag_off_topic":
+                                    # ไม่มีจอ/หน้าแมวในสคริปต์นี้ (เสียงล้วน) — แค่ log ไว้ ไม่มี UI
+                                    # ให้อัปเดต ต่างจาก routers/voice.py ที่ส่ง {"type":"off_topic"}
+                                    # ให้ browser ต่อ
+                                    logger.info("[TOOL] off-topic flagged: topic=%r", fc.args.get("topic", ""))
+                                    await session.send_tool_response(function_responses=[
+                                        types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})
+                                    ])
+                                    continue
                                 q = fc.args.get("query", "")
                                 t0 = time.perf_counter()
                                 # run_retrieval เป็น blocking call (DB + local embedding model) รันใน

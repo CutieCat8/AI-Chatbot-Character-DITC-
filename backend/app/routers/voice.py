@@ -39,7 +39,9 @@ SYSTEM_INSTRUCTION = (
     "ห้ามใช้ bullet หรือเลขข้อ เพราะข้อความนี้จะถูกอ่านออกเสียง "
     "ทุกคำถามที่เกี่ยวกับ CAMT/DITC ต้องเรียกใช้ tool search_camt_knowledge_base ก่อนเสมอ "
     "ห้ามตอบจากความรู้ทั่วไปของคุณเอง ให้ตอบจากผลที่ tool คืนมาเท่านั้น "
-    "ถ้าคำถามไม่เกี่ยวกับ CAMT/DITC ให้ปฏิเสธอย่างสุภาพว่าตอบได้เฉพาะเรื่อง CAMT/DITC"
+    "ถ้าคำถามไม่เกี่ยวกับ CAMT/DITC เลย ให้เรียก tool flag_off_topic ก่อนเสมอ (ระบุหัวข้อที่ถูกถาม "
+    "สั้น ๆ) แล้วค่อยปฏิเสธอย่างสุภาพว่าตอบได้เฉพาะเรื่อง CAMT/DITC แล้วชวนกลับเข้าหัวข้อ "
+    "ห้ามเรียก flag_off_topic ถ้าคำถามเกี่ยวกับ CAMT/DITC จริง"
 )
 
 SEARCH_FUNCTION = types.FunctionDeclaration(
@@ -54,6 +56,25 @@ SEARCH_FUNCTION = types.FunctionDeclaration(
             "query": types.Schema(type=types.Type.STRING, description="คำค้นภาษาไทย สั้น กระชับ ตรงประเด็น"),
         },
         required=["query"],
+    ),
+)
+
+# ทาง (ข) จากที่คุยกัน: ให้ Gemini คืน flag เชิงโครงสร้างเวลาจะปฏิเสธคำถามนอกขอบเขต แทนการเดาจาก
+# keyword ใน transcript (ปัดทางนั้นทิ้งแล้ว — Gemini ไม่ใช้ประโยคปฏิเสธคำเดิมทุกครั้ง keyword พังง่าย
+# และ false positive ของ keyword คือแมวโกรธใส่คำถามปกติ ซึ่งแย่กว่าการที่โมเดลลืมเรียก tool บางครั้ง
+# ถ้าไม่ได้ flag ก็แค่ไม่โกรธ ไม่มีอะไรพัง) ดู docs/adr/ หรือ session ก่อนหน้าสำหรับการเปรียบเทียบเต็ม
+OFF_TOPIC_FUNCTION = types.FunctionDeclaration(
+    name="flag_off_topic",
+    description=(
+        "เรียกฟังก์ชันนี้ทุกครั้งก่อนจะปฏิเสธคำถามเพราะไม่เกี่ยวกับ CAMT/DITC เลย "
+        "(ตามที่ system instruction กำหนด) ห้ามเรียกถ้าคำถามอยู่ในขอบเขต CAMT/DITC จริง"
+    ),
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "topic": types.Schema(type=types.Type.STRING, description="สรุปสั้น ๆ ว่าผู้ใช้ถามเรื่องอะไร (ไว้ดู log เฉย ๆ ไม่ใช้ตัดสินอะไรต่อ)"),
+        },
+        required=["topic"],
     ),
 )
 
@@ -105,7 +126,7 @@ async def voice_ws(websocket: WebSocket) -> None:
         # ไฟล์นี้ตกหล่นไปจาก voice_pipeline_dev.py ที่แก้ไว้แล้ว
         input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH", "en-US"]),
         system_instruction=SYSTEM_INSTRUCTION,
-        tools=[types.Tool(function_declarations=[SEARCH_FUNCTION])],
+        tools=[types.Tool(function_declarations=[SEARCH_FUNCTION, OFF_TOPIC_FUNCTION])],
         # ปิด automatic_activity_detection ของ Gemini เอง + ให้ browser (useVoiceSocket.ts) เป็นคนบอก
         # จุดเริ่ม/จบพูดเองผ่านข้อความ {"type":"speech_start"|"speech_end"} แทน (2026-09-06 แก้บั๊ก
         # "คุยได้แค่รอบเดียวต่อการกดปุ่ม") — วินิจฉัยแล้วว่า AAD ของโมเดลนี้ (gemini-3.1-flash-live-
@@ -166,6 +187,17 @@ async def voice_ws(websocket: WebSocket) -> None:
                         if response.tool_call:
                             function_responses = []
                             for fc in response.tool_call.function_calls:
+                                if fc.name == "flag_off_topic":
+                                    # ทาง (ข): flag เชิงโครงสร้างจากโมเดลเอง ไม่เดาจาก keyword ใน
+                                    # transcript — ถ้าโมเดลไม่เรียกตัวนี้ก็แค่ไม่โกรธ ไม่มี fallback
+                                    # เดาเอง (ตามที่ตกลงไว้ ห้าม guess จาก keyword เด็ดขาด)
+                                    topic = fc.args.get("topic", "")
+                                    logger.info("voice off-topic flagged: topic=%r", topic)
+                                    await websocket.send_json({"type": "off_topic"})
+                                    function_responses.append(
+                                        types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})
+                                    )
+                                    continue
                                 q = fc.args.get("query", "")
                                 logger.info("voice tool call: query=%r", q)
                                 # run_retrieval บล็อก (DB + local embedding model) — รันใน executor กัน

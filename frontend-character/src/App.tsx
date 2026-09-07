@@ -21,7 +21,13 @@ type Mode = "file-test" | "live-voice" | "figma-preview";
  *                          ผู้ใช้เห็นแมวเหมือนยังฟังอยู่ทั้งที่พูดจบไปแล้ว อาจพูดซ้ำเพราะนึกว่าไม่ได้ยิน)
  *   - ไม่เข้าเงื่อนไขไหนเลย -> "listening" (กำลังฟังผู้ใช้พูดอยู่จริง)
  */
-function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boolean): CatFaceState {
+/**
+ * `offTopic` มาจาก flag เชิงโครงสร้างที่ backend ส่งมาจริง (Gemini เรียก tool flag_off_topic เอง —
+ * ดู useVoiceSocket.ts) ไม่ใช่การเดา ชนะทุก state อื่นตอนยัง true อยู่ (หมดอายุเองพร้อม "wake" ที่
+ * useVoiceSocket.ts จัดการไว้แล้ว ไม่ต้อง reset ซ้ำที่นี่)
+ */
+function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boolean, offTopic: boolean): CatFaceState {
+  if (offTopic) return "angry";
   switch (state) {
     case "sleep":
       return "sleeping";
@@ -85,7 +91,8 @@ export function App() {
   // และไม่มีแนวคิด "รอ Gemini ตอบ" เลย (ไม่ได้ยิง retrieval จริง) เลย isThinking เป็น false เสมอ
   const displayBotSpeaking = mode === "live-voice" ? voice.botSpeaking : isPlaying;
   const displayIsThinking = mode === "live-voice" ? voice.isThinking : false;
-  const faceState = toCatFaceState(displayState, displayBotSpeaking, displayIsThinking);
+  const displayOffTopic = mode === "live-voice" ? voice.offTopic : false;
+  const faceState = toCatFaceState(displayState, displayBotSpeaking, displayIsThinking, displayOffTopic);
 
   // เดิม App.tsx ไม่เคยส่ง gaze/blink ให้ CatFace เลย (ตาค้างนิ่งตลอด) — ใช้ logic เดียวกับที่
   // CharacterPage.tsx (หน้าพรีวิว) ใช้: กระพริบตลอดยกเว้นตอนหลับ (ถี่ขึ้นตอน thinking ให้ดูต่างจาก
@@ -176,6 +183,7 @@ export function App() {
           </div>
           <div>isSpeechNow: {String(voice.debugVad?.isSpeechNow ?? false)}</div>
           <div>wasSpeech: {String(voice.debugVad?.wasSpeech ?? false)}</div>
+          <div>offTopic: {String(voice.offTopic)}</div>
         </div>
       )}
     </div>

@@ -37,6 +37,12 @@ interface UseVoiceSocketResult {
    * ออกจาก CatState แล้วเพราะ "Web" ใน TOR หมายถึงโหมดข่าววนคนละเรื่อง — ดู CLAUDE.md)
    */
   isThinking: boolean;
+  /**
+   * true ตอน backend ส่ง {"type":"off_topic"} มา (Gemini เรียก tool flag_off_topic เอง ตอนจะ
+   * ปฏิเสธคำถามนอกขอบเขต — ดูคอมเมนต์ที่ ws.onmessage) หมดอายุเองตอนแมวพูดตอบจบแล้วกลับ idle
+   * ไม่ค้างโกรธข้ามเทิร์นถัดไป
+   */
+  offTopic: boolean;
   amplitude: number;
   transcript: string;
   errorMessage: string | null;
@@ -90,6 +96,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const [botSpeaking, setBotSpeaking] = useState(false);
   const [debugVad, setDebugVad] = useState<UseVoiceSocketResult["debugVad"]>(null);
   const [isThinking, setIsThinking] = useState(false);
+  const [offTopic, setOffTopic] = useState(false);
   const [amplitude, setAmplitude] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -146,6 +153,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setAmplitude(0);
     setBotSpeaking(false);
     setIsThinking(false);
+    setOffTopic(false);
     setDebugVad(null);
   }, [setCatStateSafe]);
 
@@ -155,6 +163,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setTranscript("");
     wasSpeechRef.current = false; // กัน state ค้างข้ามรอบ connect (เช่น reconnect หลังกด หยุด/เริ่มใหม่)
     silentStreakRef.current = 0;
+    setOffTopic(false);
 
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
@@ -227,7 +236,9 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         resetIdleTimer();
       } else if (catStateRef.current === "wake") {
         // เพิ่งพูดจบ (เสียงเล่นหมดคิวแล้ว) — แฟลช transition สั้น ๆ แล้วกลับ idle
+        // offTopic หมดอายุตรงนี้ด้วย (จบเทิร์นแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
         setCatStateSafe("transition");
+        setOffTopic(false);
         setTimeout(() => {
           if (catStateRef.current === "transition") setCatStateSafe("idle");
         }, 400);
@@ -345,6 +356,12 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         } else if (msg.type === "turn_complete") {
           // เสียงอาจยังเล่นค้างอยู่ (บัฟไว้ล่วงหน้า) — ปล่อยให้ isBotSpeaking() ใน tick() เป็นคนตัดสิน
           // ว่าจบจริงเมื่อไหร่ ไม่ reset transcript ที่นี่ทันที เผื่อผู้ใช้อยากอ่านคำตอบล่าสุด
+        } else if (msg.type === "off_topic") {
+          // flag เชิงโครงสร้างจาก backend (Gemini เรียก tool flag_off_topic เอง — ไม่ได้เดาจาก
+          // keyword ใน transcript ห้าม guess เด็ดขาดตามที่ตกลงกันไว้) มาถึงก่อนเสียงตอบจะเริ่มเล่น
+          // เสมอ (ระหว่างรอ tool_call resolve) ต้องหมดอายุเองหลังบอทพูดจบ — reset ที่จุดเดียวกับที่
+          // "wake" -> "transition" -> "idle" ทำงานใน tick() ด้านล่าง ไม่ใช่ค้างโกรธข้ามเทิร์นถัดไป
+          setOffTopic(true);
         }
       } else if (event.data instanceof ArrayBuffer) {
         enqueueAudio(event.data);
@@ -361,5 +378,5 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
 
-  return { connectionState, catState, botSpeaking, isThinking, amplitude, transcript, errorMessage, connect, disconnect, debugVad };
+  return { connectionState, catState, botSpeaking, isThinking, offTopic, amplitude, transcript, errorMessage, connect, disconnect, debugVad };
 }
