@@ -388,6 +388,21 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     };
     ws.onclose = () => {
       setConnectionState((prev) => (prev === "error" ? prev : "closed"));
+      // เจอจริงตอนทดสอบ: ถ้า WS หลุดกะทันหัน (ไม่ใช่กดปุ่ม "หยุดคุย" — นั่นไปทาง disconnect()
+      // ที่ reset ครบอยู่แล้ว) ตอนแมวกำลังโกรธ/ฟัง/คิดอยู่พอดี ค่าพวกนี้จะไม่มีใคร reset เลย ค้างข้าม
+      // ไปยัง session/การเชื่อมต่อครั้งถัดไป (คนถัดไปกดเริ่มคุยมาเจอแมวโกรธใส่ทันที แย่กว่าบั๊กเดิม)
+      // เคลียร์กลับ idle ให้ครบเหมือนตอน disconnect() ปกติ — ต้อง clear idleTimerRef ด้วย ไม่งั้น
+      // ถ้ามี timer ค้างจากก่อนหน้า (ตั้งไว้จาก resetIdleTimer() รอบล่าสุดตอนยังเชื่อมต่ออยู่) มันจะ
+      // ยิง setCatStateSafe("sleep") ทับ idle ที่เพิ่ง set ไปหลังจากนี้อีกที (เจอจริงตอนทดสอบ)
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      setCatStateSafe("idle");
+      setBotSpeaking(false);
+      setIsThinking(false);
+      setOffTopic(false);
+      setAmplitude(0);
+      hasBotSpokenThisTurnRef.current = false;
+      wasSpeechRef.current = false;
+      silentStreakRef.current = 0;
     };
   }, [isBotSpeaking, resetIdleTimer, setCatStateSafe, debugEnabled]);
 

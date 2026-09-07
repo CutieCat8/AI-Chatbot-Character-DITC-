@@ -104,8 +104,17 @@
   | `idle` | `idle` | |
   | `transition` | `idle` | ไม่มี render แยกของตัวเอง |
   | `sleep` | `sleeping` | |
-  | `wake` | `listening` หรือ `speaking` | แยกด้วย `botSpeaking` (เพิ่มใหม่ใน `useVoiceSocket.ts`) — ผู้ใช้พูดอยู่ = `listening`, แมวพูดตอบ = `speaking` |
-  | *(ไม่มี CatState ไหนแมปมา)* | `thinking`, `waking`, `angry` | ยังไม่มีอะไรในแอปจริงเรียกถึง 3 ตัวนี้เลย เข้าถึงได้แค่ผ่านปุ่มในหน้าพรีวิว (`CharacterPage.tsx`) — ดู `docs/adr/` หรือถามเซสชันก่อนหน้าถ้าจะต่อ `angry`/`waking` จริง (ต้องมี wake-word detector + off-topic detection signal จาก backend ก่อน ยังไม่มีทั้งคู่)
+  | `wake` | `listening` / `thinking` / `speaking` | `listening`=กำลังฟังผู้ใช้, `thinking`=หยุดพูดแล้วรอ Gemini ตอบ (`isThinking`), `speaking`=แมวพูดตอบ (`botSpeaking`) — ทั้งหมดต่อกับไมค์จริงแล้ว (2026-09-07/08) |
+  | *(offTopic flag ชนะทุก state)* | `angry` | ต่อกับ backend จริงแล้ว (2026-09-08) — Gemini เรียก tool `flag_off_topic` เอง (ทาง ข ไม่เดาจาก keyword) ส่ง `{"type":"off_topic"}` ผ่าน WS หมดอายุเองพร้อม `wake→transition→idle` ปกติ **และ**เคลียร์ทันทีถ้า WS หลุดกะทันหัน (`ws.onclose`) กันไม่ให้ค้างโกรธข้าม session ไปหาคนถัดไป |
+  | *(ไม่มี CatState ไหนแมปมา)* | `waking` | ยังไม่มีอะไรเรียกถึง — ต้องมี wake-word detector ก่อน (ยังไม่ทำ ดูหัวข้อ "ฟีเจอร์ในสโคปที่ยังไม่ได้ทำ")
+
+  **ปัญหาที่พบระหว่างทดสอบ `angry` ด้วยเสียงสังเคราะห์ (2026-09-07/08) — ยังไม่ยืนยัน:** ทดสอบโดย
+  override `getUserMedia` ให้เล่นเสียงคำถามนอกขอบเขตที่สังเคราะห์ไว้แทนไมค์จริง เจอ 2 ครั้งติดว่าหลัง
+  Gemini เรียก `flag_off_topic` แล้ว เสียงตอบไม่มาเลยนานผิดปกติ (ครั้งหนึ่ง session ตายเองฝั่ง Gemini
+  ด้วย error "1008 policy violation: The operation was aborted" หลังค้างไป 165 วิ) **สงสัยว่าเกิดจาก
+  เสียงสังเคราะห์ที่ใช้ทดสอบเอง ไม่ใช่ระบบจริง** (ผิดธรรมชาติของเสียงพูดจริงตรงไหนสักที่ที่ทำให้ Gemini
+  งง) — ยังไม่ได้สืบเพิ่ม รอทดสอบด้วยเสียงคนพูดจริงก่อนว่าเจออาการเดิมไหม ถ้าเจอด้วยเสียงจริงถึงจะถือว่า
+  เป็นบั๊กจริงที่ต้องแก้
 - ตอบเฉพาะขอบเขต CAMT, DITC และเนื้อหาบนเว็บ DITC
   คำถามนอกขอบเขตให้ปฏิเสธสุภาพแล้วชวนกลับเข้าหัวข้อ
 
