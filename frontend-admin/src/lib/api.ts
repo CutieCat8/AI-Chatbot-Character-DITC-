@@ -232,11 +232,17 @@ export function deleteDocument(id: number) {
   return apiDelete(`/api/documents/${id}`);
 }
 
-export async function askChat(question: string): Promise<ChatResponse> {
+export type ChatTurn = { question: string; answer: string };
+
+// backend รับได้สูงสุด 3 เทิร์น (ดู MAX_HISTORY_TURNS ใน schemas/chat.py) ส่งเกินจะได้ 422
+// จำกัดไว้เพราะยิ่งแนบบทสนทนามาก prompt ยิ่งใหญ่และตอบช้าลง
+export const MAX_HISTORY_TURNS = 3;
+
+export async function askChat(question: string, history: ChatTurn[] = []): Promise<ChatResponse> {
   const res = await fetch(new URL("/api/chat", API_BASE), {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, history: history.slice(-MAX_HISTORY_TURNS) }),
   });
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);

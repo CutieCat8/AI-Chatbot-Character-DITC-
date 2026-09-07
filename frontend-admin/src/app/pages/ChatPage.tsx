@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, Send, Globe, ExternalLink, Cat, User, Loader2 } from "lucide-react";
-import { askChat, type ChatSourceOut } from "../../lib/api";
+import { askChat, MAX_HISTORY_TURNS, type ChatSourceOut, type ChatTurn } from "../../lib/api";
 
 interface Message {
   id: string;
@@ -14,6 +14,21 @@ const SITE_LABEL: Record<ChatSourceOut["source_site"], string> = {
   camt: "CAMT",
   manual: "Manual",
 };
+
+/**
+ * แปลงรายการข้อความบนจอเป็นคู่ (คำถาม, คำตอบ) ให้ backend
+ * เอาเฉพาะคู่ที่ผู้ใช้ถามแล้วบอทตอบต่อทันที — ข้อความต้อนรับที่ไม่มีคำถามคู่กัน
+ * และข้อความ error จะไม่ถูกนับเป็นเทิร์น
+ */
+function buildHistory(messages: Message[]): ChatTurn[] {
+  const turns: ChatTurn[] = [];
+  for (let i = 0; i < messages.length - 1; i++) {
+    if (messages[i].role === "user" && messages[i + 1].role === "assistant") {
+      turns.push({ question: messages[i].text, answer: messages[i + 1].text });
+    }
+  }
+  return turns.slice(-MAX_HISTORY_TURNS);
+}
 
 const STARTER_PROMPTS = [
   "สาขา DII ในคณะ CAMT คืออะไร",
@@ -80,12 +95,16 @@ export default function ChatPage() {
     const q = question.trim();
     if (!q || loading) return;
 
+    // จับคู่ถาม-ตอบที่ผ่านมาส่งไปด้วย เพื่อให้คำถามต่อเนื่องที่ไม่ครบใจความ ("แล้วค่าเทอมล่ะ")
+    // รู้ว่ากำลังพูดถึงหลักสูตรไหนอยู่ — ข้าม WELCOME_MESSAGE ที่ไม่มีคำถามคู่กัน
+    const history = buildHistory(messages);
+
     setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text: q }]);
     setInput("");
     setLoading(true);
 
     try {
-      const res = await askChat(q);
+      const res = await askChat(q, history);
       setMessages((m) => [
         ...m,
         { id: crypto.randomUUID(), role: "assistant", text: res.answer, sources: res.sources },
