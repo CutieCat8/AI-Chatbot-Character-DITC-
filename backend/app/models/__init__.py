@@ -4,6 +4,7 @@
 """
 from app.models.admin import AdminUser
 from app.models.conversation import ConversationSession
+from app.models.conversation_turn import ConversationTurn
 from app.models.feedback import Feedback
 from app.models.idle_content import IdleContent
 from app.models.knowledge import Document, DocumentChunk
@@ -12,6 +13,7 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "ConversationSession",
+    "ConversationTurn",
     "Feedback",
     "IdleContent",
     "AdminUser",

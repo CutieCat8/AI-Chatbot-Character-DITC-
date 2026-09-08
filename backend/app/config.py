@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     # ---- Voice pipeline (dev-machine, Gemini Live) ----
     VAD_SPEECH_THRESHOLD: float = 0.5  # silero-vad prob ที่ถือว่า "กำลังพูด" (0-1)
     VAD_SILENCE_TIMEOUT_S: float = 8.0  # เงียบต่อเนื่องกี่วิ ถึงปิด session อัตโนมัติ
+
+    # ---- Session analytics (routers/voice.py + services/session_tracker.py) ----
+    # เกณฑ์เงียบต่อเนื่องที่ถือว่า "analytics session" หนึ่งจบ — คนละตัวกับ VAD_SILENCE_TIMEOUT_S
+    # ด้านบน (นั่นคือของ dev CLI pipeline คนละระบบ) ตัวนี้ใช้ตัดขอบเขตสถิติในแดชบอร์ดเท่านั้น
+    # ไม่กระทบ WS/Gemini session ที่ยังเปิดอยู่เลย ปรับได้จาก .env โดยไม่ต้อง redeploy โค้ด
+    # เพราะหน้างานจริงอาจต้องจูนค่านี้ (ตัดสินใจร่วมกับผู้ว่าจ้าง 2026-09-08)
+    BACKEND_SESSION_SILENCE_TIMEOUT_S: float = 60.0
     AUDIO_OUTPUT_BUFFER_S: float = 1.5  # บัฟเฟอร์เสียงตอบก่อนเริ่มเล่น กันสะดุดตอนเน็ตไม่นิ่ง
     VOICE_RECONNECT_MAX_BACKOFF_S: float = 30.0  # เพดาน exponential backoff ตอน reconnect
     # เลือกอุปกรณ์ไมค์/ลำโพงเอง (ใส่ index ตัวเลข หรือส่วนหนึ่งของชื่ออุปกรณ์) เว้นว่างไว้ = ใช้ default

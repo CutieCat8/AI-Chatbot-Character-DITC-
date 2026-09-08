@@ -28,7 +28,12 @@ class ConversationSession(Base, TimestampMixin):
 
     # หัวข้อที่ AI สรุปว่าถามเรื่องอะไร (Scope 7.2) — ไม่ใช่บทสนทนาเต็ม
     topic: Mapped[str | None] = mapped_column(String(255))
-    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)))  # แท็กสั้น ๆ
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)))  # ค่าจาก Topic enum เท่านั้น (models/enums.py)
+
+    # คำอธิบายสั้น ๆ ที่ LLM เขียนขึ้นเอง (ไม่เกิน 10 คำ) ตอน tags มี Topic.OTHER — ใช้ดูว่าควร
+    # เพิ่มหัวข้อ enum อะไรบ้าง ห้ามเป็นคำพูดผู้ใช้/query string ที่คัดลอกมาตรง ๆ (บังคับที่ตัว prompt
+    # ของ classifier ไม่ใช่ validate ที่นี่) ตัดสินใจร่วมกับผู้ว่าจ้าง 2026-09-08
+    other_hint: Mapped[str | None] = mapped_column(String(120))
 
 
 
