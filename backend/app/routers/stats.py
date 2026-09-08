@@ -104,7 +104,7 @@ def conversation_stats(
     for tags in tags_rows:
         topic_counter.update(tags)
     top_topics = [
-        TopicCountOut(topic=Topic(value), label=TOPIC_LABELS.get(Topic(value), value), count=count)
+        TopicCountOut(topic=Topic(value), label=_display_label(Topic(value)), count=count)
         for value, count in topic_counter.most_common()
     ]
 
@@ -123,3 +123,16 @@ def conversation_stats(
 def _date_range(start: date, end: date) -> list[date]:
     days = (end - start).days
     return [start + timedelta(days=i) for i in range(days + 1)]
+
+
+# TOPIC_LABELS (topic_classifier.py) เขียนไว้เป็นคำอธิบายให้ LLM อ่าน (บางอันยาวเป็นประโยคคำสั่ง
+# เช่น Topic.OTHER ที่บอกวิธีใช้ ไม่ใช่ชื่อหมวดหมู่) เอามาแสดงในการ์ด/กราฟตรง ๆ ไม่เหมาะ — override
+# เฉพาะจุดที่จะดูแปลก/ไม่ครบความหมายตอนถูกตัดสั้นในหน้า UI (เจอจริงตอนทดสอบ: "other" แสดงเป็น
+# "จัดหมวดตามลิสต์ด้านบนไม่ได้เลย..." ตัดกลางประโยคจนอ่านไม่รู้เรื่อง)
+_DISPLAY_LABEL_OVERRIDES: dict[Topic, str] = {
+    Topic.OTHER: "อื่น ๆ (นอกเหนือหัวข้อที่มี)",
+}
+
+
+def _display_label(topic: Topic) -> str:
+    return _DISPLAY_LABEL_OVERRIDES.get(topic) or TOPIC_LABELS.get(topic, topic.value)

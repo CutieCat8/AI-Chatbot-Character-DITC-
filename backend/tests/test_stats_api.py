@@ -148,6 +148,11 @@ def test_daily_counts_topics_noise_and_unclassified_split_correctly(db) -> None:
     assert topics == {"tuition_fee": 2, "admission": 1, "other": 2, "curriculum_se": 1}
     # top_topics ต้องมี label ภาษาไทยติดมาด้วย ไม่ใช่แค่ enum key ดิบ ๆ
     assert all(row["label"] for row in body["top_topics"])
+    # "other" ต้องไม่ใช่คำสั่งยาว ๆ ที่เขียนไว้ให้ LLM อ่าน (TOPIC_LABELS ใน topic_classifier.py) —
+    # เจอจริงตอนทดสอบ UI: แสดงเป็น "จัดหมวดตามลิสต์ด้านบนไม่ได้เลย..." ตัดกลางประโยคอ่านไม่รู้เรื่อง
+    other_label = next(row["label"] for row in body["top_topics"] if row["topic"] == "other")
+    assert len(other_label) < 30
+    assert "ต้องใส่" not in other_label
 
 
 def test_date_range_excludes_sessions_outside_range(db) -> None:
