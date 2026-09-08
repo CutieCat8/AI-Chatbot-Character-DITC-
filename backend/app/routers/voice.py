@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
@@ -22,8 +23,10 @@ from google.genai import types
 
 from app.config import settings
 from app.database import SessionLocal
+from app.models.enums import SessionEndReason, Speaker
 from app.rag.embedding import get_embedder
 from app.rag.retrieval import keyword_search, normalize_query, search
+from app.services.session_tracker import SessionTracker
 
 logger = logging.getLogger("routers.voice")
 
@@ -129,6 +132,13 @@ async def voice_ws(websocket: WebSocket) -> None:
         await websocket.close(code=1011, reason="ไม่มี GEMINI_API_KEY ใน .env")
         return
 
+    # analytics session (สถิติหน้าแดชบอร์ด) แยกจาก WS/Gemini session นี้โดยเจตนา — ดูคอมเมนต์เต็ม
+    # ที่ app/services/session_tracker.py ตัดขอบเขตด้วยความเงียบต่อเนื่อง ไม่ผูกกับ GoAway/reconnect
+    # ของ Gemini เลย (record_turn() ถูกเรียกจาก speech_start/turn_complete ด้านล่างเท่านั้น)
+    ws_connection_id = str(uuid.uuid4())
+    tracker = SessionTracker(ws_connection_id)
+    tracker.start()
+
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
     def build_config(resumption_handle: str | None) -> types.LiveConnectConfig:
@@ -188,6 +198,10 @@ async def voice_ws(websocket: WebSocket) -> None:
                 logger.warning("voice_ws: ข้อความ JSON parse ไม่ได้: %r", text)
                 continue
             if msg.get("type") == "speech_start":
+                # สัญญาณ "ผู้ใช้เริ่มพูดจริง" ตัวเดียวกับที่ frontend ใช้ตัดสิน UI — ใช้เป็นจุดนับ
+                # turn ของ analytics session ด้วย (ดู session_tracker.py) ไม่เกี่ยวกับ Gemini
+                # activity_start ด้านล่างเลย เป็นคนละเรื่องกัน แค่เกิดพร้อมกัน
+                tracker.record_turn(Speaker.USER)
                 await session.send_realtime_input(activity_start=types.ActivityStart())
             elif msg.get("type") == "speech_end":
                 await session.send_realtime_input(activity_end=types.ActivityEnd())
@@ -262,6 +276,10 @@ async def voice_ws(websocket: WebSocket) -> None:
                         await websocket.send_json({"type": "transcript", "text": text_piece})
 
                 if response.server_content and response.server_content.turn_complete:
+                    # ตัวเดียวกับที่ turn_complete ส่งให้ frontend — ใช้เป็นจุดนับ turn ฝั่งแมวของ
+                    # analytics session ด้วย (ดู session_tracker.py) เกิดเฉพาะตอนเทิร์นจบจริง
+                    # ไม่เกิดตอน GoAway (นั่นเป็นคนละ response type ไม่เข้า branch นี้)
+                    tracker.record_turn(Speaker.BOT)
                     await websocket.send_json({"type": "turn_complete"})
 
     resumption_handle: str | None = None
@@ -330,3 +348,8 @@ async def voice_ws(websocket: WebSocket) -> None:
             await websocket.close(code=1011, reason="internal error")
         except RuntimeError:
             pass  # ปิดไปแล้ว
+    finally:
+        # ทำงานทุกทางออกจากฟังก์ชันนี้เสมอ (WS หลุดปกติ/error/แม้แต่ทางที่ปกติไม่ควรเกิด) — ปิด
+        # watchdog task ของ analytics session แล้ว flush session ที่เปิดค้างอยู่ (ถ้ามี) กันไม่ให้
+        # ค้างเป็น session ที่ไม่มีวันจบ ไม่เกี่ยวกับ Gemini/reconnect ที่จบไปแล้วก่อนถึงจุดนี้เสมอ
+        await tracker.stop(SessionEndReason.UNKNOWN)
