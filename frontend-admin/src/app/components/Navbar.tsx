@@ -6,6 +6,7 @@ import logo from "../../assets/logo.png";
 const NAV_ITEMS = [
   { label: "Knowledge Base", to: "/dashboard" },
   { label: "Chat Demo", to: "/dashboard/chat" },
+  { label: "สถิติบทสนทนา", to: "/dashboard/stats" },
 ];
 
 export function Navbar() {

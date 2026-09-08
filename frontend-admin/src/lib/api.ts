@@ -232,6 +232,34 @@ export function deleteDocument(id: number) {
   return apiDelete(`/api/documents/${id}`);
 }
 
+export interface DailyConversationCountOut {
+  date: string;
+  count: number;
+}
+
+export interface TopicCountOut {
+  topic: string;
+  label: string;
+  count: number;
+}
+
+export interface ConversationStatsOut {
+  start_date: string;
+  end_date: string;
+  total_conversations: number;
+  noise_count: number;
+  unclassified_count: number;
+  other_count: number;
+  daily_counts: DailyConversationCountOut[];
+  top_topics: TopicCountOut[];
+}
+
+// start/end เป็น "YYYY-MM-DD" — backend บังคับให้ระบุทั้งคู่เสมอ ไม่มีค่าเริ่มต้น (ไม่ hardcode
+// ช่วงวันใด ๆ ฝั่ง backend) หน้า StatsPage เป็นคนเลือกช่วงเริ่มต้นเอง
+export function getConversationStats(start: string, end: string) {
+  return apiGet<ConversationStatsOut>("/api/stats/conversations", { start, end });
+}
+
 export type ChatTurn = { question: string; answer: string };
 
 // backend รับได้สูงสุด 3 เทิร์น (ดู MAX_HISTORY_TURNS ใน schemas/chat.py) ส่งเกินจะได้ 422

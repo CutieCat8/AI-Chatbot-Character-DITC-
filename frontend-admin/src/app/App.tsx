@@ -7,6 +7,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import KnowledgeBasePage from "./pages/KnowledgeBasePage";
 import ChatPage from "./pages/ChatPage";
+import StatsPage from "./pages/StatsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 export default function App() {
@@ -36,6 +37,17 @@ export default function App() {
                 <Navbar />
                 <div className="flex-1 flex flex-col min-h-0 bg-gray-50">
                   <ChatPage />
+                </div>
+              </div>
+            }
+          />
+          <Route
+            path="/dashboard/stats"
+            element={
+              <div className="min-h-screen h-screen flex flex-col">
+                <Navbar />
+                <div className="flex-1 flex flex-col min-h-0 bg-gray-50">
+                  <StatsPage />
                 </div>
               </div>
             }
