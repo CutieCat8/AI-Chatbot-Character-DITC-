@@ -61,6 +61,37 @@ def test_other_hint_truncated_to_10_words(monkeypatch: pytest.MonkeyPatch) -> No
     assert len(other_hint.split()) == 10, "other_hint ต้องถูกตัดเหลือไม่เกิน 10 คำ"
 
 
+def test_other_hint_dropped_if_copied_verbatim_from_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LLM ไม่ทำตาม prompt (ห้ามคัดลอก) — other_hint เป็น signal ทั้งก้อนตรง ๆ ต้องถูกทิ้ง"""
+    _stub(monkeypatch, '{"tags": ["other"], "other_hint": "อยากทราบเรื่องหอพักนักศึกษาชั้นปีที่ 1"}')
+    tags, other_hint = topic_classifier.classify_session_topics(["อยากทราบเรื่องหอพักนักศึกษาชั้นปีที่ 1"])
+    assert tags == ["other"]
+    assert other_hint is None, "other_hint ที่คัดลอก signal มาทั้งก้อนต้องถูกทิ้ง"
+
+
+def test_other_hint_dropped_if_long_run_matches_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LLM แต่งประโยคใหม่รอบ ๆ แต่ยังคัดลอกวลียาวมาทั้งดุ้น — ต้องจับได้เหมือนกัน ไม่ใช่แค่คัดลอกทั้งก้อน"""
+    _stub(
+        monkeypatch,
+        '{"tags": ["other"], "other_hint": "คำถามเรื่องหอพักนักศึกษาสำหรับชั้นปีที่หนึ่งของมหาลัย"}',
+    )
+    tags, other_hint = topic_classifier.classify_session_topics(
+        ["นักศึกษาถามว่า หอพักนักศึกษาสำหรับชั้นปีที่หนึ่ง มีที่ไหนบ้าง"]
+    )
+    assert tags == ["other"]
+    assert other_hint is None, "วลียาวที่ตรงกับ signal เป๊ะต้องถูกจับแม้ประโยครอบข้างต่างกัน"
+
+
+def test_other_hint_kept_when_genuinely_summarized_not_copied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """other_hint ที่เป็นคำสรุปจริง (ไม่ตรงกับ signal ยาว ๆ) ต้องไม่ถูกทิ้งอย่างไม่มีเหตุผล"""
+    _stub(monkeypatch, '{"tags": ["other"], "other_hint": "หอพักนักศึกษา"}')
+    tags, other_hint = topic_classifier.classify_session_topics(
+        ["นักศึกษาชั้นปีที่ 1 อยากทราบว่ามีที่พักในมหาวิทยาลัยให้เช่าไหม"]
+    )
+    assert tags == ["other"]
+    assert other_hint == "หอพักนักศึกษา"
+
+
 def test_invalid_tags_are_filtered_out_but_valid_ones_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub(monkeypatch, '{"tags": ["tuition_fee", "ค่าเทอม_มั่ว", "not_a_real_topic"], "other_hint": null}')
     tags, other_hint = topic_classifier.classify_session_topics(["ค่าเทอม"])
