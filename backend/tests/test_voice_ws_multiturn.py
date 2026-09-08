@@ -25,12 +25,29 @@ from fastapi.testclient import TestClient
 from app.routers import voice as voice_module
 
 
-def make_response(data: bytes | None = None, transcript: str | None = None, turn_complete: bool = False):
+def make_response(
+    data: bytes | None = None,
+    transcript: str | None = None,
+    turn_complete: bool = False,
+    go_away=None,
+    session_resumption_update=None,
+):
+    """go_away/session_resumption_update ต้องตั้งเสมอ (ดีฟอลต์ None/falsy) — ไม่ใช่แค่ตอนอยากทดสอบ
+    เรื่องนั้นโดยตรง เพราะ gemini_to_browser (routers/voice.py) เข้าถึง response.go_away และ
+    response.session_resumption_update แบบ attribute ตรง ๆ ทุก response ที่ผ่าน (ไม่ใช่ getattr แบบมี
+    default) ถ้าไม่ตั้งจะได้ AttributeError ทันที — เคยพังแบบนี้มาก่อนตั้งแต่เพิ่ม session resumption
+    reconnect (commit 90f38cb) เพราะตอนนั้นไม่ได้อัปเดตเทสนี้ตาม (แก้แล้ว 2026-09-08)"""
     server_content = SimpleNamespace(
         output_transcription=SimpleNamespace(text=transcript) if transcript else None,
         turn_complete=turn_complete,
     )
-    return SimpleNamespace(tool_call=None, data=data, server_content=server_content)
+    return SimpleNamespace(
+        tool_call=None,
+        data=data,
+        server_content=server_content,
+        go_away=go_away,
+        session_resumption_update=session_resumption_update,
+    )
 
 
 class FakeSession:
