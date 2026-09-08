@@ -3,11 +3,10 @@ test_session_tracker.py — พิสูจน์ requirement ที่ผู้
 (ก้อนที่ 2 ของงานสถิติหัวข้อบทสนทนา, 2026-09-08):
 
   1. GoAway reconnect กลาง session ต้องไม่ถูกนับเป็น session จบ/session ใหม่
-     -> พิสูจน์ด้วย structural guard (test_goaway_...) + unit test ตรง SessionTracker (test_session_
-     tracker_watchdog_...) ไม่ผ่าน WS/thread เลย — ตอนแรกลองทำเป็นเทสระดับ WS ที่บังคับ GoAway จริง
-     ผ่าน FakeSession queue-based แล้วเจอว่า "cancel task ที่ค้างอยู่ใน queue.get() ของ thread pool
-     worker ไม่ได้หยุด thread จริง ๆ" ทำให้ thread pool รั่วสะสมจนทั้งไฟล์ค้าง (เจอจริงตอนรันซ้ำหลายรอบ)
-     เปลี่ยนมาทดสอบ SessionTracker ตรง ๆ แทนเพราะ deterministic กว่ามากและพิสูจน์ guarantee เดียวกัน
+     -> พิสูจน์ 3 ชั้น: structural guard (test_goaway_does_not_appear...), unit test ตรง
+     SessionTracker (test_session_tracker_watchdog_...), และเทสพฤติกรรมจริงผ่าน WS พร้อม GoAway
+     จริง (test_goaway_mid_session_does_not_close_or_reset_or_lose_turns) — ใช้ FakeSession ที่ขับ
+     ด้วย loop.call_soon_threadsafe() (ดูคอมเมนต์ที่คลาส FakeSession อธิบาย 2 วิธีที่ลองแล้วพังมาก่อน)
   2. เงียบครบ BACKEND_SESSION_SILENCE_TIMEOUT_S แล้วต้องปิด analytics session จริง (insert DB)
      -> พิสูจน์ในเทส unit เดียวกับข้อ 1 (test_session_tracker_watchdog_...)
   3. คุยต่อหลังปิด session แล้วต้องเริ่มนับ session ใหม่ถูกต้อง (แถวที่ 2 แยกจากแถวแรก)
@@ -17,10 +16,10 @@ test_session_tracker.py — พิสูจน์ requirement ที่ผู้
   5. flag_off_topic ต้องยังทำงานเหมือนเดิมทุกประการ ไม่ถูกกระทบจาก hook ที่เพิ่มเข้าไป
      -> test_flag_off_topic_still_works_unaffected_by_session_tracker (ผ่าน WS จริง)
 
-หมายเหตุ: เทสนี้ทำ FakeSession/make_response ของตัวเอง (ไม่ reuse จาก test_voice_ws_multiturn.py)
-เพราะเทสนั้น "ไม่ตั้ง session_resumption_update/go_away ให้ response object" — ตรวจแล้วว่า **พังอยู่
-ก่อนแล้ว** (AttributeError) จากตอนที่เพิ่ม session resumption reconnect (commit 90f38cb) ไม่เกี่ยวกับ
-งานก้อนนี้เลย ไม่ได้แก้ในนี้เพราะอยู่นอกสโคปที่สั่ง (ดูรายงานท้าย session)
+หมายเหตุ: เทสนี้ทำ FakeSession/make_response ของตัวเอง (ไม่ reuse จาก test_voice_ws_multiturn.py —
+ไฟล์นั้นแก้ AttributeError ของ go_away/session_resumption_update ไปแล้วแยกต่างหากใน commit fix(test)
+ก่อนหน้านี้) เพราะเทสนี้ต้องคุมจังหวะเวลาที่แต่ละ turn/GoAway มาถึงเอง (push_turn()/push_go_away())
+ซึ่งไฟล์นั้นไม่มี (ใช้ลิสต์ตายตัว consume รัวเดียวจบ)
 
 รัน: docker exec ditc_backend python -m pytest tests/test_session_tracker.py -v
 ใช้ DB จริงของ dev container (conversation_sessions/conversation_turns) — ไม่ mock DB
@@ -30,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import queue as _queue
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -41,6 +41,7 @@ from app.database import SessionLocal
 from app.models import ConversationSession, ConversationTurn
 from app.models.enums import SessionEndReason, Speaker
 from app.routers import voice as voice_module
+from app.services.session_tracker import SessionTracker
 
 
 def make_response(
@@ -301,6 +302,97 @@ def test_session_tracker_watchdog_ignores_everything_except_record_turn() -> Non
             db.close()
 
     asyncio.run(scenario())
+
+
+def test_goaway_mid_session_does_not_close_or_reset_or_lose_turns(
+    monkeypatch: pytest.MonkeyPatch, db
+) -> None:
+    """เทสพฤติกรรมจริง (ไม่ใช่แค่อ่าน source เหมือน structural guard ด้านบน) — จำลอง GoAway จริง
+    กลางบทสนทนาผ่าน WS จริง แล้วยืนยันครบ 4 ข้อที่ผู้ว่าจ้างสั่งให้พิสูจน์ (2026-09-08):
+      1. analytics session ไม่ถูกปิด — ไม่มีแถวถูก insert ระหว่าง WS ยังเปิดอยู่
+      2. watchdog ยังนับต่อเนื่อง ไม่รีเซ็ต — พิสูจน์โดยตรงจาก state ภายใน tracker (_turns/
+         _session_started_at) ไม่ถูกล้างช่วง GoAway เลย (ตัว timer เองไม่มี state แยกให้ peek ได้
+         นอกจาก _activity_event ซึ่งรีเซ็ตได้จาก record_turn() เท่านั้น — เทสนี้พิสูจน์ว่า GoAway ไม่
+         เรียก record_turn() ทางอ้อมผ่านการเช็คว่า _turns ไม่เปลี่ยนแปลงช่วง GoAway เลย ตรงกับ
+         โครงสร้างจริงที่ structural guard ยืนยันไว้แล้วว่า record_turn ไม่มีทางถูกเรียกจาก branch นี้)
+      3. message_count ไม่ถูกรีเซ็ต — สุดท้ายต้องได้ 4 (2 ก่อน GoAway + 2 หลัง) ไม่ใช่ 2
+      4. turn หลัง reconnect ยังนับรวมใน session เดิม — 1 แถวเดียวใน DB ไม่ใช่ 2
+
+    ใช้ spy subclass ของ SessionTracker เพื่อจับ instance จริงที่ voice_ws() สร้าง — ไม่มีทางอื่นที่
+    เรียบง่ายกว่านี้ในการ peek internal state โดยไม่ต้องรอปิด session จริง (ซึ่งจะทำให้พิสูจน์ข้อ 1-2
+    ระหว่างที่ WS ยังเปิดอยู่ไม่ได้เลย)"""
+    captured: list[SessionTracker] = []
+
+    class SpySessionTracker(SessionTracker):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            captured.append(self)
+
+    monkeypatch.setattr(voice_module, "SessionTracker", SpySessionTracker)
+
+    session = FakeSession()
+    monkeypatch.setattr(voice_module.genai, "Client", _make_fake_genai_client_class(session))
+    monkeypatch.setattr(voice_module.settings, "GEMINI_API_KEY", "fake-key-for-test")
+    # เกณฑ์ silence ยาวพอที่จะไม่มีทางยิงเองระหว่างเทสนี้ทำงาน (การรอ reconnect settle ใช้แค่ไม่กี่ ms
+    # เพราะ call_soon_threadsafe ไม่มี thread hop แล้ว) — กันไม่ให้ปนกับกรณี "ปิดเพราะ timeout จริง"
+    monkeypatch.setattr(voice_module.settings, "BACKEND_SESSION_SILENCE_TIMEOUT_S", 5.0)
+
+    max_id_before = _max_session_id(db)
+
+    app = _build_test_app()
+    client = TestClient(app)
+    with client.websocket_connect("/api/voice/ws") as ws:
+        ws.send_json({"type": "speech_start"})
+        ws.send_bytes(b"\x00" * 640)
+        ws.send_json({"type": "speech_end"})
+        session.push_turn([make_response(data=b"a1"), make_response(transcript="ans1", turn_complete=True)])
+        _drain_until(ws, "turn_complete")
+
+        assert len(captured) == 1, "คาดว่า voice_ws() สร้าง SessionTracker แค่ตัวเดียวต่อ WS connection"
+        tracker = captured[0]
+        assert len(tracker._turns) == 2  # user (speech_start) + bot (turn_complete)
+        turns_before_goaway = list(tracker._turns)
+        started_at_before_goaway = tracker._session_started_at
+
+        session.push_go_away()
+        # รอ reconnect settle — poll แทน sleep คงที่ เพราะเร็วมาก (ไม่มี thread hop) ปกติ <10ms
+        for _ in range(500):
+            if len(tracker._turns) != 2 or tracker._session_started_at != started_at_before_goaway:
+                break  # state เปลี่ยนแปลงแล้ว (ไม่ควรเกิดตรงนี้ แต่ถ้าเกิดจะได้ fail ไว เร็ว ไม่รอครบ 500 รอบ)
+            time.sleep(0.002)
+
+        # ---- ข้อ 1: analytics session ไม่ถูกปิด ----
+        db.expire_all()
+        assert _max_session_id(db) == max_id_before, "GoAway ทำให้มีการ insert DB ก่อนเวลา (ปิด session ผิด)"
+
+        # ---- ข้อ 2: watchdog ยังนับต่อเนื่อง ไม่รีเซ็ต (state ภายในไม่ถูกล้าง) ----
+        assert tracker._turns == turns_before_goaway, "GoAway ทำให้ turn ก่อนหน้าหาย/ถูกล้าง"
+        assert tracker._session_started_at == started_at_before_goaway, (
+            "GoAway ทำให้ _session_started_at เปลี่ยน — แปลว่า session ถูกปิดแล้วเปิดใหม่ (รีเซ็ต) กลางทาง"
+        )
+
+        # เทิร์นถัดไปหลัง reconnect
+        ws.send_json({"type": "speech_start"})
+        ws.send_bytes(b"\x00" * 640)
+        ws.send_json({"type": "speech_end"})
+        session.push_turn([make_response(data=b"a2"), make_response(transcript="ans2", turn_complete=True)])
+        _drain_until(ws, "turn_complete")
+
+        # ---- ข้อ 3+4: turn หลัง reconnect รวมใน session เดิม ไม่ใช่เริ่มใหม่ ----
+        assert len(tracker._turns) == 4, "เทิร์นหลัง reconnect ต้องรวมกับ session เดิม (message_count สะสมต่อ)"
+        assert tracker._session_started_at == started_at_before_goaway
+
+    # ปิด ws แล้ว — flush เป็น 1 แถวที่รวมทั้ง 4 turn (ก่อน+หลัง GoAway)
+    db.expire_all()
+    rows = (
+        db.query(ConversationSession)
+        .filter(ConversationSession.id > max_id_before)
+        .order_by(ConversationSession.id)
+        .all()
+    )
+    assert len(rows) == 1, f"คาดว่า 1 session รวม GoAway แต่ได้ {len(rows)}"
+    assert rows[0].message_count == 4
+    assert rows[0].end_reason == SessionEndReason.UNKNOWN  # ปิดเพราะ ws หลุด ไม่ใช่ timeout
 
 
 def test_ws_disconnect_flushes_open_session_without_waiting_for_timeout(
