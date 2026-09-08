@@ -321,6 +321,12 @@ def test_goaway_mid_session_does_not_close_or_reset_or_lose_turns(
     ใช้ spy subclass ของ SessionTracker เพื่อจับ instance จริงที่ voice_ws() สร้าง — ไม่มีทางอื่นที่
     เรียบง่ายกว่านี้ในการ peek internal state โดยไม่ต้องรอปิด session จริง (ซึ่งจะทำให้พิสูจน์ข้อ 1-2
     ระหว่างที่ WS ยังเปิดอยู่ไม่ได้เลย)"""
+    # transcript ("ans1"/"ans2" ด้านล่าง) ถูก record_signal() ไปด้วย (ดู voice.py) ซึ่งจะยิง
+    # classify จริงตอนปิด session — LLM_PROVIDER dev คือ deepseek พร้อม API key จริง ต้อง stub เสมอ
+    monkeypatch.setattr(
+        "app.services.session_tracker.classify_session_topics", lambda signals: (["other"], "stubbed")
+    )
+
     captured: list[SessionTracker] = []
 
     class SpySessionTracker(SessionTracker):
@@ -400,6 +406,10 @@ def test_ws_disconnect_flushes_open_session_without_waiting_for_timeout(
 ) -> None:
     """ปิด ws ทันทีหลังคุยจบ 1 เทิร์น (ไม่รอ silence timeout เลย) ต้องยัง insert session ให้ถูก
     ไม่ค้างเป็น session ที่ไม่มีวันจบ"""
+    # transcript ("ans1" ด้านล่าง) ถูก record_signal() ไปด้วย — stub กัน classify ยิง network จริง
+    monkeypatch.setattr(
+        "app.services.session_tracker.classify_session_topics", lambda signals: (["other"], "stubbed")
+    )
     session = FakeSession()
     monkeypatch.setattr(voice_module.genai, "Client", _make_fake_genai_client_class(session))
     monkeypatch.setattr(voice_module.settings, "GEMINI_API_KEY", "fake-key-for-test")
@@ -433,7 +443,15 @@ def test_flag_off_topic_still_works_unaffected_by_session_tracker(
     monkeypatch: pytest.MonkeyPatch, db
 ) -> None:
     """flag_off_topic ต้องยังส่ง {"type":"off_topic"} ให้ frontend เหมือนเดิมทุกประการ และบทสนทนา
-    ต้องดำเนินต่อได้ปกติ (ยังได้ turn_complete) — พิสูจน์ว่า hook เก็บ turn ไม่ไปแทรก/เปลี่ยน flow นี้"""
+    ต้องดำเนินต่อได้ปกติ (ยังได้ turn_complete) — พิสูจน์ว่า hook เก็บ turn ไม่ไปแทรก/เปลี่ยน flow นี้
+
+    เทสนี้ไม่ทดสอบผลลัพธ์ classify (ดู test_topic_classifier.py/test_session_tracker_classify.py
+    แยกต่างหาก) แต่ topic = "อากาศวันนี้" ถูก record_signal() ไว้จริง ซึ่งจะไปเรียก classify จริงตอน
+    session ปิด (background task) — LLM_PROVIDER ใน .env dev ตอนนี้คือ deepseek พร้อม API key จริง
+    ต้อง stub classify_session_topics ไว้เสมอกันยิง network call จริงทุกครั้งที่รันเทสไฟล์นี้"""
+    monkeypatch.setattr(
+        "app.services.session_tracker.classify_session_topics", lambda signals: (["other"], "stubbed")
+    )
     off_topic_call = make_tool_call_response("flag_off_topic", {"topic": "อากาศวันนี้"})
     session = FakeSession()
     monkeypatch.setattr(voice_module.genai, "Client", _make_fake_genai_client_class(session))

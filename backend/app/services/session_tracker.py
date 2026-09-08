@@ -9,16 +9,22 @@ services/session_tracker.py — ตัดขอบเขต "analytics session" 
   (แมวพูดจบ) ใน routers/voice.py เท่านั้น ไม่มีจุดไหนใน reconnect loop เรียกฟังก์ชันนี้ ดังนั้น
   Gemini ส่ง GoAway มา (ทุก ~15 นาที) จะไม่ทำให้ watchdog เข้าใจผิดว่า session จบ
 
-*** ไม่เก็บข้อความใด ๆ ***
+*** ไม่เก็บข้อความใด ๆ ลง DB — text อยู่ใน memory ชั่วคราวเท่านั้น ***
   record_turn() รับแค่ speaker (Speaker.USER/BOT) ไม่มีพารามิเตอร์ข้อความให้ใส่ผิดได้เลยแม้ไม่ตั้งใจ
-  ConversationSession ที่ insert ตอนปิด session ในไฟล์นี้ยังไม่มี tags/topic/other_hint (เป็นงาน
-  ของ classifier ก้อนถัดไป) — message_count นับจากจำนวน turn ที่เก็บได้จริง, status ตั้ง
-  UNCLASSIFIED ไว้ก่อนเสมอ
+  ส่วน record_signal() รับข้อความได้ (สำหรับ classifier — ดู topic_classifier.py) แต่เก็บใน memory
+  ของอินสแตนซ์นี้เท่านั้น ไม่เขียนลง DB ที่ไหนเลย ถูกส่งให้ classifier ตอนปิด session แล้วทิ้งทันที
+  (ดู _close_current_session) ConversationSession ที่ insert ตอนปิด session เขียนแค่ tags/other_hint
+  ที่ classifier สรุปมา (ค่า enum/ข้อความสั้น ๆ) ไม่เคยเขียนสัญญาณดิบ — message_count นับจากจำนวน
+  turn ที่เก็บได้จริง, status ตั้ง UNCLASSIFIED ไว้ก่อนเสมอตอน insert (classifier ไม่แตะ status —
+  ดูเหตุผลใน topic_classifier.py)
 
 *** ไม่บล็อก event loop ***
-  record_turn() เป็น sync ล้วน (แค่ append list + set asyncio.Event) ไม่มี await เลย — งาน DB
-  ทั้งหมด (insert ตอนปิด session) รันผ่าน run_in_executor เหมือน run_retrieval ใน routers/voice.py
-  กันไม่ให้เสียงที่กำลังส่ง/เล่นอยู่สะดุดตอนเขียน DB
+  record_turn()/record_signal() เป็น sync ล้วน (แค่ append list) ไม่มี await เลย — งาน DB ทั้งหมด
+  (insert ตอนปิด session) รันผ่าน run_in_executor เหมือน run_retrieval ใน routers/voice.py กันไม่ให้
+  เสียงที่กำลังส่ง/เล่นอยู่สะดุดตอนเขียน DB ส่วน classify (เรียก LLM จริง อาจช้าหลายวินาที) ยิงเป็น
+  asyncio.create_task() แยกต่างหาก ไม่ await เลยจาก _close_current_session — การปิด session (insert
+  แถว) กับการ classify (UPDATE แถวทีหลัง) จึงเป็นคนละจังหวะกันโดยสิ้นเชิง แถวใน DB ปรากฏทันทีเสมอ
+  ไม่ว่า classify จะช้า/ล้มเหลวแค่ไหน
 
 *** session ที่ไม่มี turn เลยไม่ถูกบันทึก ***
   ถ้า WS ต่อแล้วหลุดโดยไม่มีใครพูดอะไรเลย (ไม่มี speech_start/turn_complete แม้แต่ครั้งเดียว)
@@ -35,8 +41,13 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import ConversationSession, ConversationTurn
 from app.models.enums import Language, SessionEndReason, SessionStatus, Speaker
+from app.services.topic_classifier import classify_session_topics
 
 logger = logging.getLogger("services.session_tracker")
+
+# เก็บ reference ของ background classify task ไว้กัน GC (asyncio.create_task() ที่ไม่มีใครถือ
+# reference ไว้เลยมีสิทธิ์โดนเก็บขยะทิ้งกลางทางได้ — เป็น pattern มาตรฐานตามเอกสาร asyncio)
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _insert_closed_session(
@@ -45,30 +56,71 @@ def _insert_closed_session(
     started_at: datetime,
     ended_at: datetime,
     end_reason: SessionEndReason,
-) -> None:
-    """sync — เรียกผ่าน loop.run_in_executor() เท่านั้น ห้ามเรียกตรงจาก event loop (blocking DB I/O)"""
+) -> int:
+    """sync — เรียกผ่าน loop.run_in_executor() เท่านั้น ห้ามเรียกตรงจาก event loop (blocking DB I/O)
+    คืน id ของแถวที่ insert ไว้ให้ classify task เอาไป UPDATE ทีหลัง"""
     db = SessionLocal()
     try:
-        db.add(
-            ConversationSession(
-                started_at=started_at,
-                ended_at=ended_at,
-                language=Language.TH,
-                topic=None,
-                tags=None,
-                other_hint=None,
-                message_count=len(turns),
-                status=SessionStatus.UNCLASSIFIED,  # classifier (ก้อนถัดไป) จะอัปเดตทีหลัง
-                end_reason=end_reason,
-            )
+        session_row = ConversationSession(
+            started_at=started_at,
+            ended_at=ended_at,
+            language=Language.TH,
+            topic=None,
+            tags=None,
+            other_hint=None,
+            message_count=len(turns),
+            status=SessionStatus.UNCLASSIFIED,  # classifier ไม่แตะ status (ดู topic_classifier.py)
+            end_reason=end_reason,
         )
+        db.add(session_row)
         db.add_all(
             ConversationTurn(ws_connection_id=ws_connection_id, speaker=speaker, occurred_at=occurred_at)
             for speaker, occurred_at in turns
         )
         db.commit()
+        return session_row.id
     finally:
         db.close()
+
+
+def _update_session_tags(session_id: int, tags: list[str], other_hint: str | None) -> None:
+    """sync — เรียกผ่าน loop.run_in_executor() เท่านั้น เขียนแค่ tags/other_hint ที่ classifier
+    สรุปมาแล้ว (ค่า enum/ข้อความสั้น ๆ ที่ผ่าน validate ใน topic_classifier.py แล้ว) ไม่เคยเขียน
+    สัญญาณดิบ ไม่แตะคอลัมน์อื่น (status/end_reason/message_count เขียนไว้แล้วตอน insert)"""
+    db = SessionLocal()
+    try:
+        session_row = db.get(ConversationSession, session_id)
+        if session_row is None:  # แถวถูกลบไปแล้ว (ไม่ควรเกิดในทางปฏิบัติ) — ไม่มีอะไรให้ update
+            logger.warning("session_tracker: session_id=%d หายไปก่อน classify เสร็จ", session_id)
+            return
+        session_row.tags = tags
+        session_row.other_hint = other_hint
+        db.commit()
+    finally:
+        db.close()
+
+
+async def _classify_and_update(session_id: int, signals: list[str]) -> None:
+    """background task แยกจาก _close_current_session โดยสิ้นเชิง (ไม่มีใคร await ตัวนี้เลย) —
+    เรียก LLM (อาจช้าหลายวินาที) แล้ว UPDATE แถวที่ insert ไปแล้ว ล้มเหลวได้ทุกจุด (LLM error/parse
+    ไม่ได้/แถวหาย) โดยไม่ทำให้ analytics session หาย เพราะแถวถูก insert ไปเรียบร้อยแล้วก่อนหน้านี้
+    (ดู _close_current_session) — signals ที่รับมาเป็น local variable ในนี้เท่านั้น ไม่ถูกเก็บที่ไหน
+    อีกเลยหลังฟังก์ชันนี้จบ (สำเร็จหรือล้มเหลวก็ตาม)"""
+    if not signals:
+        return  # ไม่มีสัญญาณให้ classify เลย (เช่น session ที่ไม่เคยเรียก tool/ไม่มี transcript)
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(None, classify_session_topics, signals)
+    except Exception:
+        logger.exception("session_tracker: classify ล้มเหลว (session_id=%d) — ปล่อย UNCLASSIFIED ไว้", session_id)
+        return
+    if result is None:
+        logger.warning(
+            "session_tracker: classifier คืนผลไม่สำเร็จ (session_id=%d) — ปล่อย UNCLASSIFIED ไว้", session_id
+        )
+        return
+    tags, other_hint = result
+    await loop.run_in_executor(None, _update_session_tags, session_id, tags, other_hint)
 
 
 class SessionTracker:
@@ -81,6 +133,7 @@ class SessionTracker:
             silence_timeout_s if silence_timeout_s is not None else settings.BACKEND_SESSION_SILENCE_TIMEOUT_S
         )
         self._turns: list[tuple[Speaker, datetime]] = []
+        self._signals: list[str] = []
         self._session_started_at: datetime | None = None
         self._activity_event = asyncio.Event()
         self._watchdog_task: asyncio.Task | None = None
@@ -96,6 +149,19 @@ class SessionTracker:
             self._session_started_at = now
         self._turns.append((speaker, now))
         self._activity_event.set()  # ปลุก watchdog ให้เริ่มนับเวลาใหม่
+
+    def record_signal(self, text: str) -> None:
+        """เก็บ "สัญญาณหัวข้อ" ไว้ใน memory ชั่วคราว สำหรับ classifier ใช้ตอนปิด session เท่านั้น
+        (ดู topic_classifier.py) — เรียกได้จาก 3 จุดใน routers/voice.py เท่านั้น: query ที่ Gemini
+        แปลงแล้วตอนเรียก search_camt_knowledge_base, topic ที่ Gemini สรุปตอนเรียก flag_off_topic,
+        และข้อความที่แมวพูดตอบ (output_transcription)
+
+        ***ห้ามเรียกด้วย input_audio_transcription (คำพูดดิบของผู้ใช้) เด็ดขาด แม้จะแค่ชั่วคราวก็ตาม***
+        ตัดสินใจร่วมกับผู้ว่าจ้างไว้ชัดเจนว่าไม่ยอมเสี่ยง PDPA เกินจำเป็น — สัญญาณทั้งหมดที่รับได้จาก
+        3 จุดข้างบนล้วนเป็นข้อความที่ตัวระบบ (Gemini) สร้าง/สรุปเองทั้งสิ้น ไม่ใช่คำพูดผู้ใช้ตรง ๆ
+        ไม่มีการเรียกใช้ record_turn() ที่นี่ — ไม่ใช่จุดตัดสิน turn boundary"""
+        if text:
+            self._signals.append(text)
 
     async def _watchdog(self) -> None:
         loop = asyncio.get_running_loop()
@@ -123,14 +189,22 @@ class SessionTracker:
         if not self._turns:
             return
         turns = self._turns
+        signals = self._signals
         started_at = self._session_started_at
         ended_at = turns[-1][1]
         self._turns = []
+        self._signals = []
         self._session_started_at = None
         assert started_at is not None
-        await loop.run_in_executor(
+        session_id = await loop.run_in_executor(
             None, _insert_closed_session, self.ws_connection_id, turns, started_at, ended_at, end_reason
         )
+        # ยิงเป็น background task แยกต่างหาก ไม่ await — แถวถูก insert ไปแล้วข้างบน (เห็นในแดชบอร์ด
+        # ได้ทันที) ต่อให้ classify ใช้เวลาหลายวินาที/ล้มเหลว ก็ไม่หน่วง _close_current_session ที่
+        # กำลัง return กลับไปให้ watchdog/stop() ทำงานต่อ (ดูเหตุผลเต็มที่ _classify_and_update)
+        task = asyncio.create_task(_classify_and_update(session_id, signals))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
     async def stop(self, end_reason: SessionEndReason = SessionEndReason.UNKNOWN) -> None:
         """เรียกตอน voice_ws() จบ (WS หลุดจริง ไม่ว่าจะกดหยุดเอง/ปิดแท็บ/เน็ตขาด/error) —

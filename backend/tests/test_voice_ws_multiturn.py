@@ -158,6 +158,12 @@ def _drain_turn(ws, timeout: float = 5.0) -> dict:
 
 def test_multiturn_over_single_ws_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     """2 เทิร์นติดกันในการเชื่อมต่อเดียว ไม่ปิด-เปิด ws ใหม่ — regression หลักของบั๊กนี้"""
+    # transcript ("คำตอบที่ 1/2" ด้านล่าง) ถูก record_signal() ไปด้วย (ดู session_tracker.py) ซึ่งจะ
+    # ยิง topic classify จริงตอนปิด session — LLM_PROVIDER dev คือ deepseek พร้อม API key จริง
+    # ต้อง stub เสมอกัน network call จริงทุกครั้งที่รันเทสไฟล์นี้ (ไม่เกี่ยวกับสิ่งที่เทสนี้พิสูจน์เลย)
+    monkeypatch.setattr(
+        "app.services.session_tracker.classify_session_topics", lambda signals: (["other"], "stubbed")
+    )
     session = FakeSession(turns=[
         [make_response(data=b"audio-turn-1"), make_response(transcript="คำตอบที่ 1", turn_complete=True)],
         [make_response(data=b"audio-turn-2"), make_response(transcript="คำตอบที่ 2", turn_complete=True)],

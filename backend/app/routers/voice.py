@@ -251,6 +251,9 @@ async def voice_ws(websocket: WebSocket) -> None:
                             # เดาเอง (ตามที่ตกลงไว้ ห้าม guess จาก keyword เด็ดขาด)
                             topic = fc.args.get("topic", "")
                             logger.info("voice off-topic flagged: topic=%r", topic)
+                            # สัญญาณให้ topic classifier ตอนปิด session (ดู session_tracker.py /
+                            # topic_classifier.py) — เป็นคำที่ Gemini สรุปเอง ไม่ใช่คำพูดผู้ใช้ตรง ๆ
+                            tracker.record_signal(topic)
                             await websocket.send_json({"type": "off_topic"})
                             function_responses.append(
                                 types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})
@@ -258,6 +261,9 @@ async def voice_ws(websocket: WebSocket) -> None:
                             continue
                         q = fc.args.get("query", "")
                         logger.info("voice tool call: query=%r", q)
+                        # สัญญาณให้ topic classifier ตอนปิด session — query ผ่านการแปลงจาก Gemini
+                        # แล้ว (ดู SEARCH_FUNCTION description) ไม่ใช่คำพูดผู้ใช้ตรง ๆ
+                        tracker.record_signal(q)
                         # run_retrieval บล็อก (DB + local embedding model) — รันใน executor กัน
                         # event loop ค้าง ไม่งั้นเสียงไมค์ที่กำลังส่งเข้า Gemini จะสะดุดระหว่างรอ
                         # (เหมือนที่แก้ไว้แล้วใน voice_pipeline_dev.py แต่ตกหล่นไปจากไฟล์นี้)
@@ -273,6 +279,9 @@ async def voice_ws(websocket: WebSocket) -> None:
                 if response.server_content and response.server_content.output_transcription:
                     text_piece = response.server_content.output_transcription.text
                     if text_piece:
+                        # สัญญาณให้ topic classifier — ข้อความที่แมวพูดตอบเอง (ไม่ใช่คำพูดผู้ใช้)
+                        # กันเคส greeting/small-talk ที่ไม่มีการเรียก tool เลยทั้งเทิร์น
+                        tracker.record_signal(text_piece)
                         await websocket.send_json({"type": "transcript", "text": text_piece})
 
                 if response.server_content and response.server_content.turn_complete:
