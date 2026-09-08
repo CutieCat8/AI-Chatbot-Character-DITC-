@@ -11,6 +11,9 @@ deterministic กว่ามาก ไม่เจอปัญหา thread-bri
   4. session ไม่มีสัญญาณเลย -> ไม่เรียก classify เลย (ประหยัด LLM call)
   5. structural guard: record_signal() ถูกเรียกแค่ 3 จุดตามที่ตั้งใจ (topic/query/bot transcript)
      ไม่มีจุดไหนใช้ input_audio_transcription (คำพูดดิบผู้ใช้) เลย
+  6. (เพิ่ม 2026-09-08) เกณฑ์ NOISE: session ที่ไม่เคยเรียก search_camt_knowledge_base เลยทั้ง
+     session -> status=NOISE, ข้าม classify ไปเลย (ประหยัด LLM call) — ไม่นับเป็น "จำนวนบทสนทนา"
+     ทั้งใน API (routers/stats.py) และ UI (ดู test_stats_api.py ที่ทดสอบฝั่ง query แยกไว้)
 
 รัน: docker exec ditc_backend python -m pytest tests/test_session_tracker_classify.py -v
 """
@@ -59,6 +62,7 @@ def test_close_session_does_not_wait_for_classify(monkeypatch: pytest.MonkeyPatc
         tracker.start()
         tracker.record_turn(Speaker.USER)
         tracker.record_signal("ค่าเทอม SE เท่าไหร่")
+        tracker.mark_knowledge_search_called()
         tracker.record_turn(Speaker.BOT)
 
         t0 = time.monotonic()
@@ -103,6 +107,7 @@ def test_classify_failure_does_not_lose_the_session(monkeypatch: pytest.MonkeyPa
         tracker.record_turn(Speaker.USER)
         tracker.record_signal("คำถามอะไรสักอย่าง")
         tracker.record_turn(Speaker.BOT)
+        tracker.mark_knowledge_search_called()
         await tracker.stop(SessionEndReason.UNKNOWN)
 
         await asyncio.sleep(0.1)  # ให้ background task มีเวลาล้มเหลวให้จบ
@@ -121,7 +126,13 @@ def test_classify_failure_does_not_lose_the_session(monkeypatch: pytest.MonkeyPa
 
 def test_empty_signals_never_calls_classifier(monkeypatch: pytest.MonkeyPatch, db) -> None:
     """session ที่ไม่มี record_signal() เลย (ไม่เรียก tool, ไม่มี transcript) ต้องไม่เรียก
-    classify_session_topics เลยแม้แต่ครั้งเดียว — ประหยัด LLM call ที่ไม่มีอะไรให้ classify จริง ๆ"""
+    classify_session_topics เลยแม้แต่ครั้งเดียว — ประหยัด LLM call ที่ไม่มีอะไรให้ classify จริง ๆ
+
+    หมายเหตุ: session แบบนี้ (ไม่เรียก mark_knowledge_search_called เลย) ตอนนี้ตกเป็น NOISE ตั้งแต่
+    _close_current_session อยู่แล้ว (ดู test_session_without_knowledge_search_call_is_noise ด้านล่าง)
+    ทำให้ไม่มีทางไปถึง _classify_and_update's ตัวเช็ค "if not signals: return" ในทางปฏิบัติจริงอีก
+    ต่อไป — เทสนี้ยังเก็บไว้เพราะตัวเช็คนั้นยังเป็น defensive guard ที่ถูกต้อง (เช่น เคส query
+    เป็นสตริงว่างที่ record_signal ไม่รับ แต่ mark_knowledge_search_called ยังถูกเรียกอยู่)"""
     calls: list[list[str]] = []
     monkeypatch.setattr(
         session_tracker_module, "classify_session_topics", lambda signals: calls.append(list(signals))
@@ -149,6 +160,77 @@ def test_empty_signals_never_calls_classifier(monkeypatch: pytest.MonkeyPatch, d
     asyncio.run(scenario())
 
 
+def test_session_without_knowledge_search_call_is_noise_and_skips_classify(
+    monkeypatch: pytest.MonkeyPatch, db
+) -> None:
+    """เกณฑ์ NOISE (ตัดสินใจร่วมกับผู้ว่าจ้าง 2026-09-08): session ที่ไม่เคยเรียก
+    search_camt_knowledge_base เลยทั้ง session (ไม่ว่าจะเงียบสนิทหรือถามนอกเรื่อง/flag_off_topic
+    ก็ตาม) ต้องถูกตั้ง status=NOISE ตอน insert และ **ห้ามเรียก classify เลย** (ประหยัด LLM call) —
+    ต่างจาก test_empty_signals_never_calls_classifier ตรงที่เทสนี้ "มี" สัญญาณอยู่ (จาก
+    flag_off_topic) แต่ยังต้องเป็น NOISE เพราะไม่เคยเรียก search เลย"""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        session_tracker_module,
+        "classify_session_topics",
+        lambda signals: calls.append(list(signals)) or (["tuition_fee"], None),
+    )
+
+    async def scenario():
+        max_id_before = _max_session_id(db)
+        tracker = SessionTracker(f"noise-off-topic-{max_id_before}", silence_timeout_s=60.0)
+        tracker.start()
+        tracker.record_turn(Speaker.USER)
+        tracker.record_signal("อากาศวันนี้เป็นยังไงบ้าง")  # จาก flag_off_topic — ไม่ใช่ search
+        tracker.record_turn(Speaker.BOT)
+        # ไม่เรียก tracker.mark_knowledge_search_called() เลยตลอด session นี้
+        await tracker.stop(SessionEndReason.UNKNOWN)
+
+        await asyncio.sleep(0.1)
+        assert calls == [], "session ที่ไม่เคยเรียก search ต้องไม่ถูกส่ง classify เลย"
+
+        db.expire_all()
+        row = (
+            db.query(ConversationSession)
+            .filter(ConversationSession.id > max_id_before)
+            .one()
+        )
+        assert row.status == "noise"
+        assert row.tags is None
+        assert row.message_count == 2, "แถวยังต้อง insert ปกติ (เห็นจำนวนได้) แค่ status เป็น noise"
+
+    asyncio.run(scenario())
+
+
+def test_session_with_knowledge_search_call_is_not_noise(monkeypatch: pytest.MonkeyPatch, db) -> None:
+    """session ที่เรียก search_camt_knowledge_base อย่างน้อย 1 ครั้ง ต้องไม่ใช่ NOISE (เป็น
+    unclassified ตามปกติ รอ classify) แม้จะเรียกแค่ครั้งเดียวท่ามกลาง turn อื่น ๆ ที่ไม่เกี่ยว"""
+    monkeypatch.setattr(
+        session_tracker_module, "classify_session_topics", lambda signals: (["tuition_fee"], None)
+    )
+
+    async def scenario():
+        max_id_before = _max_session_id(db)
+        tracker = SessionTracker(f"not-noise-{max_id_before}", silence_timeout_s=60.0)
+        tracker.start()
+        tracker.record_turn(Speaker.USER)
+        tracker.record_signal("ค่าเทอม SE")
+        tracker.mark_knowledge_search_called()
+        tracker.record_turn(Speaker.BOT)
+        await tracker.stop(SessionEndReason.UNKNOWN)
+
+        await asyncio.sleep(0.1)
+        db.expire_all()
+        row = (
+            db.query(ConversationSession)
+            .filter(ConversationSession.id > max_id_before)
+            .one()
+        )
+        assert row.status == "unclassified"
+        assert row.tags == ["tuition_fee"]
+
+    asyncio.run(scenario())
+
+
 def test_record_signal_called_only_at_the_three_intended_sites() -> None:
     """Structural guard — record_signal() ต้องถูกเรียกแค่ 3 จุดตามที่ตั้งใจ (query ของ
     search_camt_knowledge_base, topic ของ flag_off_topic, bot output_transcription) และห้ามมีจุด
@@ -165,4 +247,23 @@ def test_record_signal_called_only_at_the_three_intended_sites() -> None:
     assert len(call_args) == 3, f"คาดว่า record_signal( ถูกเรียกแค่ 3 จุด แต่เจอ {len(call_args)}"
     assert "input_audio_transcription" not in "".join(call_args), (
         "record_signal ห้ามรับ input_audio_transcription (คำพูดดิบผู้ใช้) เด็ดขาด"
+    )
+
+
+def test_mark_knowledge_search_called_only_at_the_search_tool_site() -> None:
+    """Structural guard — mark_knowledge_search_called() ต้องถูกเรียกแค่ 1 จุดเท่านั้น: จุดที่จัดการ
+    search_camt_knowledge_base tool call ห้ามถูกเรียกจาก flag_off_topic branch เด็ดขาด (ถ้าเผลอเรียก
+    ที่นั่นด้วย เกณฑ์ NOISE จะพัง — session ที่ถามนอกเรื่องอย่างเดียวจะไม่ถูกนับเป็น NOISE ทั้งที่ควรเป็น)"""
+    import inspect
+
+    source = inspect.getsource(voice_module)
+    assert source.count(".mark_knowledge_search_called()") == 1, (
+        "mark_knowledge_search_called() ต้องถูกเรียกแค่จุดเดียว (ตอนจัดการ search_camt_knowledge_base)"
+    )
+
+    off_topic_branch_start = source.index('if fc.name == "flag_off_topic":')
+    off_topic_branch_end = source.index("continue", off_topic_branch_start)
+    off_topic_branch = source[off_topic_branch_start:off_topic_branch_end]
+    assert "mark_knowledge_search_called" not in off_topic_branch, (
+        "ห้ามเรียก mark_knowledge_search_called() จาก flag_off_topic branch"
     )

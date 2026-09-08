@@ -264,6 +264,10 @@ async def voice_ws(websocket: WebSocket) -> None:
                         # สัญญาณให้ topic classifier ตอนปิด session — query ผ่านการแปลงจาก Gemini
                         # แล้ว (ดู SEARCH_FUNCTION description) ไม่ใช่คำพูดผู้ใช้ตรง ๆ
                         tracker.record_signal(q)
+                        # เกณฑ์ NOISE (ดู session_tracker.py): session ที่ไม่เคยเรียก tool นี้เลย
+                        # ถือว่าไม่มีคำถามจริงเกี่ยวกับ CAMT/DITC — ต้องตั้ง flag ตรงนี้จุดเดียว
+                        # (ไม่ใช่ที่ flag_off_topic ด้านบน ซึ่งหมายถึง "ถามนอกเรื่อง" ไม่ใช่ "ไม่ถามเลย")
+                        tracker.mark_knowledge_search_called()
                         # run_retrieval บล็อก (DB + local embedding model) — รันใน executor กัน
                         # event loop ค้าง ไม่งั้นเสียงไมค์ที่กำลังส่งเข้า Gemini จะสะดุดระหว่างรอ
                         # (เหมือนที่แก้ไว้แล้วใน voice_pipeline_dev.py แต่ตกหล่นไปจากไฟล์นี้)
