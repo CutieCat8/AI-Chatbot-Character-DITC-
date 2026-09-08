@@ -30,16 +30,22 @@ services/session_tracker.py — ตัดขอบเขต "analytics session" 
   ถ้า WS ต่อแล้วหลุดโดยไม่มีใครพูดอะไรเลย (ไม่มี speech_start/turn_complete แม้แต่ครั้งเดียว)
   จะไม่ insert แถวใน conversation_sessions เลย
 
-*** NOISE — session ที่พูด/มี turn จริง แต่ไม่มีคำถามจริงเกี่ยวกับ CAMT/DITC ***
-  เกณฑ์ (ตัดสินใจร่วมกับผู้ว่าจ้าง 2026-09-08): ถ้า session นั้นไม่เคยเรียก search_camt_knowledge_base
-  เลยสักครั้ง (ดู mark_knowledge_search_called()) ถือว่าไม่มีคำถามจริงเกี่ยวกับ CAMT/DITC เลย — ตั้ง
-  status=NOISE ตอน insert **และข้าม classify ไปเลย** (ไม่มีประโยชน์จะ classify หัวข้อของ session ที่
-  ไม่มีคำถามจริง ประหยัด LLM call ไปด้วย) แถวยังถูก insert ปกติ (เห็นจำนวนได้ในแดชบอร์ด แยกต่างหาก
-  จาก "จำนวนบทสนทนา" จริง — ดู routers/stats.py ที่ query แยก NOISE ออกจาก total เสมออยู่แล้ว)
+*** NOISE — session ที่พูด/มี turn จริง แต่ไม่มีคำถามใด ๆ จากคนจริงเลย ***
+  เกณฑ์ (แก้ไขร่วมกับผู้ว่าจ้าง 2026-09-09 — เกณฑ์เดิมกว้างเกินไป): ถือเป็น NOISE ก็ต่อเมื่อ
+  session นั้น **ทั้ง** ไม่เคยเรียก search_camt_knowledge_base (ดู mark_knowledge_search_called())
+  **และ** ไม่เคยเรียก flag_off_topic เลย (ดู mark_off_topic_flagged()) — คือไม่มีคำถามอะไรจากคนจริง
+  เลยสักครั้ง (คนเดินผ่าน/เสียงรบกวน/ไม่มีคำพูดที่เข้าใจได้)
 
-  หมายเหตุ: เกณฑ์นี้ครอบคลุมทั้ง "คนเดินผ่าน/เสียงรบกวนไม่มีคำพูดที่เข้าใจได้" และ "ถามเรื่องนอก
-  ขอบเขต CAMT/DITC ล้วน ๆ (flag_off_topic แต่ไม่เคยเรียก search เลย)" เป็น bucket เดียวกันตามที่
-  ผู้ว่าจ้างสั่งไว้ตรง ๆ ไม่แยกย่อยเพิ่มเอง
+  ***สำคัญ: เรียก flag_off_topic อย่างเดียว (ไม่เคย search) ไม่ใช่ NOISE*** คนที่ถามนอกขอบเขต
+  CAMT/DITC (เช่น ถามเรื่องอากาศ) เป็นคำถามจริงจากคนจริง แค่นอกเรื่อง — ต้องนับเป็นบทสนทนาจริงและ
+  ส่ง classify ตามปกติ (จะได้ tag ที่เหมาะสมหรือ "other" ก็แล้วแต่ classifier ตัดสิน) เหตุผล
+  (ผู้ว่าจ้าง): ถ้าคนถามนอกเรื่องเยอะ ต้องเห็นตัวเลขนั้นในแดชบอร์ด เพราะแปลว่าคนไม่รู้ว่าตู้ตอบอะไร
+  ได้ — เป็นปัญหา UX ที่ต้องแก้ ไม่ใช่ข้อมูลที่ควรทิ้งลงถังขยะ
+
+  session ที่เป็น NOISE จริง (ไม่เรียกทั้งสอง tool เลย) ตั้ง status=NOISE ตอน insert **และข้าม
+  classify ไปเลย** (ไม่มีประโยชน์จะ classify หัวข้อของ session ที่ไม่มีคำถามจริง ประหยัด LLM call
+  ไปด้วย) แถวยังถูก insert ปกติ (เห็นจำนวนได้ในแดชบอร์ด แยกต่างหากจาก "จำนวนบทสนทนา" จริง — ดู
+  routers/stats.py ที่ query แยก NOISE ออกจาก total เสมออยู่แล้ว)
 """
 from __future__ import annotations
 
@@ -150,6 +156,7 @@ class SessionTracker:
         self._turns: list[tuple[Speaker, datetime]] = []
         self._signals: list[str] = []
         self._knowledge_search_called: bool = False
+        self._off_topic_flagged: bool = False
         self._session_started_at: datetime | None = None
         self._activity_event = asyncio.Event()
         self._watchdog_task: asyncio.Task | None = None
@@ -182,10 +189,19 @@ class SessionTracker:
     def mark_knowledge_search_called(self) -> None:
         """เรียกจากจุดเดียวเท่านั้น: ตอน Gemini เรียก search_camt_knowledge_base จริงใน
         routers/voice.py (คนละจุดกับ record_signal(q) ที่เรียกพร้อมกันตรงนั้น — ตัวนี้แค่ตั้ง flag
-        ไม่เก็บข้อความ) ใช้ตัดสินตอนปิด session ว่ามีคำถามจริงเกี่ยวกับ CAMT/DITC ไหม (ดู
-        _close_current_session) — ไม่เรียกจาก flag_off_topic หรือ transcript เด็ดขาด เพราะเกณฑ์คือ
-        "เรียก search จริง" ไม่ใช่ "มีสัญญาณอะไรก็ได้" (ตัดสินใจร่วมกับผู้ว่าจ้าง 2026-09-08)"""
+        ไม่เก็บข้อความ) ใช้ร่วมกับ mark_off_topic_flagged() ตัดสินตอนปิด session ว่า NOISE ไหม (ดู
+        _close_current_session และ docstring หัวไฟล์เรื่องเกณฑ์ NOISE) — ไม่เรียกจาก flag_off_topic
+        หรือ transcript เด็ดขาด"""
         self._knowledge_search_called = True
+
+    def mark_off_topic_flagged(self) -> None:
+        """เรียกจากจุดเดียวเท่านั้น: ตอน Gemini เรียก flag_off_topic จริงใน routers/voice.py
+        (คนละจุดกับ record_signal(topic) ที่เรียกพร้อมกันตรงนั้น — ตัวนี้แค่ตั้ง flag ไม่เก็บข้อความ)
+        สำคัญ: การเรียก flag_off_topic ถือว่ามีคำถามจริงจากคนจริงแล้ว (แค่นอกขอบเขต CAMT/DITC) —
+        ไม่ใช่ NOISE ต้อง classify ตามปกติ (ตัดสินใจร่วมกับผู้ว่าจ้าง 2026-09-09 แก้จากเกณฑ์เดิมที่
+        กว้างเกินไป — เดิมนับ off-topic-only เป็น NOISE ผิด ทำให้เห็นปัญหา UX "คนไม่รู้ว่าตู้ตอบอะไร
+        ได้" ไม่ได้)"""
+        self._off_topic_flagged = True
 
     async def _watchdog(self) -> None:
         loop = asyncio.get_running_loop()
@@ -215,17 +231,21 @@ class SessionTracker:
         turns = self._turns
         signals = self._signals
         knowledge_search_called = self._knowledge_search_called
+        off_topic_flagged = self._off_topic_flagged
         started_at = self._session_started_at
         ended_at = turns[-1][1]
         self._turns = []
         self._signals = []
         self._knowledge_search_called = False
+        self._off_topic_flagged = False
         self._session_started_at = None
         assert started_at is not None
 
-        # ไม่เคยเรียก search_camt_knowledge_base เลยทั้ง session = ไม่มีคำถามจริงเกี่ยวกับ CAMT/DITC
-        # (คนเดินผ่าน/เสียงรบกวน/ถามนอกเรื่องล้วน ๆ) -> NOISE ดู docstring หัวไฟล์
-        status = SessionStatus.UNCLASSIFIED if knowledge_search_called else SessionStatus.NOISE
+        # NOISE ก็ต่อเมื่อไม่เคยเรียกทั้ง search_camt_knowledge_base และ flag_off_topic เลย = ไม่มี
+        # คำถามอะไรจากคนจริงเลยสักครั้ง — เรียก flag_off_topic อย่างเดียว (ถามนอกเรื่อง) ไม่ใช่ NOISE
+        # (ดู docstring หัวไฟล์)
+        is_noise = not knowledge_search_called and not off_topic_flagged
+        status = SessionStatus.NOISE if is_noise else SessionStatus.UNCLASSIFIED
 
         session_id = await loop.run_in_executor(
             None, _insert_closed_session, self.ws_connection_id, turns, started_at, ended_at, end_reason, status
@@ -233,8 +253,8 @@ class SessionTracker:
 
         if status == SessionStatus.NOISE:
             logger.info(
-                "session_tracker: session_id=%d เป็น NOISE (ไม่เคยเรียก search_camt_knowledge_base) "
-                "— ข้าม classify", session_id,
+                "session_tracker: session_id=%d เป็น NOISE (ไม่เคยเรียก search_camt_knowledge_base "
+                "หรือ flag_off_topic เลย) — ข้าม classify", session_id,
             )
             return  # ประหยัด LLM call — ไม่มีประโยชน์จะ classify หัวข้อของ session ที่ไม่มีคำถามจริง
 

@@ -254,6 +254,10 @@ async def voice_ws(websocket: WebSocket) -> None:
                             # สัญญาณให้ topic classifier ตอนปิด session (ดู session_tracker.py /
                             # topic_classifier.py) — เป็นคำที่ Gemini สรุปเอง ไม่ใช่คำพูดผู้ใช้ตรง ๆ
                             tracker.record_signal(topic)
+                            # เกณฑ์ NOISE (ดู session_tracker.py): เรียก flag_off_topic = มีคำถาม
+                            # จริงจากคนจริงแล้ว (แค่นอกขอบเขต) ไม่ใช่ NOISE ต่างจาก mark_knowledge_
+                            # search_called ด้านล่าง (คนละความหมาย ต้องตั้งทั้งคู่แยกกัน)
+                            tracker.mark_off_topic_flagged()
                             await websocket.send_json({"type": "off_topic"})
                             function_responses.append(
                                 types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})

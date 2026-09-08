@@ -483,3 +483,6 @@ def test_flag_off_topic_still_works_unaffected_by_session_tracker(
     assert len(closed) == 1
     # 1 user turn (speech_start) + 1 bot turn (turn_complete) — tool_call ตรงกลางไม่ทำให้นับ turn เกิน
     assert closed[0].message_count == 2
+    # เกณฑ์ NOISE (แก้ 2026-09-09): เรียก flag_off_topic แล้วต้องไม่ใช่ NOISE — เป็นคำถามจริงจากคน
+    # จริงแค่นอกขอบเขต ต้องนับเป็นบทสนทนาจริง (ดู test_session_tracker_classify.py สำหรับเทสละเอียด)
+    assert closed[0].status != "noise"

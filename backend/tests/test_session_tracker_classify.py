@@ -11,9 +11,12 @@ deterministic กว่ามาก ไม่เจอปัญหา thread-bri
   4. session ไม่มีสัญญาณเลย -> ไม่เรียก classify เลย (ประหยัด LLM call)
   5. structural guard: record_signal() ถูกเรียกแค่ 3 จุดตามที่ตั้งใจ (topic/query/bot transcript)
      ไม่มีจุดไหนใช้ input_audio_transcription (คำพูดดิบผู้ใช้) เลย
-  6. (เพิ่ม 2026-09-08) เกณฑ์ NOISE: session ที่ไม่เคยเรียก search_camt_knowledge_base เลยทั้ง
-     session -> status=NOISE, ข้าม classify ไปเลย (ประหยัด LLM call) — ไม่นับเป็น "จำนวนบทสนทนา"
-     ทั้งใน API (routers/stats.py) และ UI (ดู test_stats_api.py ที่ทดสอบฝั่ง query แยกไว้)
+  6. (เพิ่ม 2026-09-08, แก้เกณฑ์ 2026-09-09) เกณฑ์ NOISE: session ที่ไม่เคยเรียกทั้ง
+     search_camt_knowledge_base **และ** flag_off_topic เลยทั้ง session (ไม่มีคำถามจากคนจริงเลย)
+     -> status=NOISE, ข้าม classify ไปเลย (ประหยัด LLM call) — ไม่นับเป็น "จำนวนบทสนทนา" ทั้งใน API
+     (routers/stats.py) และ UI (ดู test_stats_api.py) ***เรียก flag_off_topic อย่างเดียว (ไม่เคย
+     search) ไม่ใช่ NOISE*** — เป็นคำถามจริงที่นอกขอบเขต ต้องนับเป็นบทสนทนาจริงและส่ง classify ตาม
+     ปกติ (แก้จากเกณฑ์เดิมที่กว้างเกินไป ดู test_off_topic_only_session_is_not_noise_...)
 
 รัน: docker exec ditc_backend python -m pytest tests/test_session_tracker_classify.py -v
 """
@@ -160,14 +163,15 @@ def test_empty_signals_never_calls_classifier(monkeypatch: pytest.MonkeyPatch, d
     asyncio.run(scenario())
 
 
-def test_session_without_knowledge_search_call_is_noise_and_skips_classify(
+def test_session_without_search_or_off_topic_call_is_noise_and_skips_classify(
     monkeypatch: pytest.MonkeyPatch, db
 ) -> None:
-    """เกณฑ์ NOISE (ตัดสินใจร่วมกับผู้ว่าจ้าง 2026-09-08): session ที่ไม่เคยเรียก
-    search_camt_knowledge_base เลยทั้ง session (ไม่ว่าจะเงียบสนิทหรือถามนอกเรื่อง/flag_off_topic
-    ก็ตาม) ต้องถูกตั้ง status=NOISE ตอน insert และ **ห้ามเรียก classify เลย** (ประหยัด LLM call) —
-    ต่างจาก test_empty_signals_never_calls_classifier ตรงที่เทสนี้ "มี" สัญญาณอยู่ (จาก
-    flag_off_topic) แต่ยังต้องเป็น NOISE เพราะไม่เคยเรียก search เลย"""
+    """เกณฑ์ NOISE (แก้ไขร่วมกับผู้ว่าจ้าง 2026-09-09): session ที่ไม่เคยเรียกทั้ง
+    search_camt_knowledge_base และ flag_off_topic เลยทั้ง session (ไม่มีคำถามอะไรจากคนจริงเลย —
+    เช่น มีแค่ turn ของแมวพูดทักทาย/บอกว่าไม่เข้าใจ ไม่ใช่ตอบคำถามจริง) ต้องถูกตั้ง status=NOISE
+    ตอน insert และ **ห้ามเรียก classify เลย** (ประหยัด LLM call) — ต่างจาก
+    test_empty_signals_never_calls_classifier ตรงที่เทสนี้ "มี" สัญญาณอยู่ (จาก transcript) แต่ยัง
+    ต้องเป็น NOISE เพราะไม่เคยเรียกทั้งสอง tool เลย"""
     calls: list[list[str]] = []
     monkeypatch.setattr(
         session_tracker_module,
@@ -177,16 +181,16 @@ def test_session_without_knowledge_search_call_is_noise_and_skips_classify(
 
     async def scenario():
         max_id_before = _max_session_id(db)
-        tracker = SessionTracker(f"noise-off-topic-{max_id_before}", silence_timeout_s=60.0)
+        tracker = SessionTracker(f"noise-real-{max_id_before}", silence_timeout_s=60.0)
         tracker.start()
         tracker.record_turn(Speaker.USER)
-        tracker.record_signal("อากาศวันนี้เป็นยังไงบ้าง")  # จาก flag_off_topic — ไม่ใช่ search
+        tracker.record_signal("ขอโทษค่ะ ไม่เข้าใจที่พูดมาเลย")  # transcript เฉย ๆ ไม่ใช่จาก search/off_topic
         tracker.record_turn(Speaker.BOT)
-        # ไม่เรียก tracker.mark_knowledge_search_called() เลยตลอด session นี้
+        # ไม่เรียกทั้ง mark_knowledge_search_called() และ mark_off_topic_flagged() เลยตลอด session นี้
         await tracker.stop(SessionEndReason.UNKNOWN)
 
         await asyncio.sleep(0.1)
-        assert calls == [], "session ที่ไม่เคยเรียก search ต้องไม่ถูกส่ง classify เลย"
+        assert calls == [], "session ที่ไม่เคยเรียก search/flag_off_topic ต้องไม่ถูกส่ง classify เลย"
 
         db.expire_all()
         row = (
@@ -231,6 +235,48 @@ def test_session_with_knowledge_search_call_is_not_noise(monkeypatch: pytest.Mon
     asyncio.run(scenario())
 
 
+def test_off_topic_only_session_is_not_noise_and_still_gets_classified(
+    monkeypatch: pytest.MonkeyPatch, db
+) -> None:
+    """เจตนาของเกณฑ์ใหม่ (แก้ 2026-09-09) — session ที่เรียก flag_off_topic แต่ไม่เคยเรียก search
+    เลย (คนถามนอกขอบเขต CAMT/DITC ล้วน ๆ เช่น ถามเรื่องอากาศ) ต้อง **ไม่ใช่ NOISE**: เป็นคำถามจริง
+    จากคนจริง ต้องนับเป็นบทสนทนาจริงและถูกส่ง classify ตามปกติ (จะได้ tag ที่เหมาะสมหรือ "other"
+    ก็แล้วแต่ classifier) — เหตุผล: ถ้าคนถามนอกเรื่องเยอะ ต้องเห็นตัวเลขนี้ในแดชบอร์ด เพราะแปลว่า
+    คนไม่รู้ว่าตู้ตอบอะไรได้ เป็นปัญหา UX ไม่ใช่ข้อมูลที่ควรทิ้ง"""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        session_tracker_module,
+        "classify_session_topics",
+        lambda signals: calls.append(list(signals)) or (["other"], "ถามเรื่องนอกขอบเขต"),
+    )
+
+    async def scenario():
+        max_id_before = _max_session_id(db)
+        tracker = SessionTracker(f"off-topic-only-{max_id_before}", silence_timeout_s=60.0)
+        tracker.start()
+        tracker.record_turn(Speaker.USER)
+        tracker.record_signal("อากาศวันนี้เป็นยังไงบ้าง")  # จาก flag_off_topic
+        tracker.mark_off_topic_flagged()
+        # ไม่เรียก tracker.mark_knowledge_search_called() เลย — ไม่เคย search จริง
+        tracker.record_turn(Speaker.BOT)
+        await tracker.stop(SessionEndReason.UNKNOWN)
+
+        await asyncio.sleep(0.1)
+        assert calls != [], "off-topic-only session ต้องถูกส่ง classify ตามปกติ ไม่ข้ามเหมือน NOISE"
+
+        db.expire_all()
+        row = (
+            db.query(ConversationSession)
+            .filter(ConversationSession.id > max_id_before)
+            .one()
+        )
+        assert row.status != "noise", "เรียก flag_off_topic แล้วต้องไม่ใช่ NOISE"
+        assert row.status == "unclassified"
+        assert row.tags == ["other"]
+
+    asyncio.run(scenario())
+
+
 def test_record_signal_called_only_at_the_three_intended_sites() -> None:
     """Structural guard — record_signal() ต้องถูกเรียกแค่ 3 จุดตามที่ตั้งใจ (query ของ
     search_camt_knowledge_base, topic ของ flag_off_topic, bot output_transcription) และห้ามมีจุด
@@ -253,7 +299,7 @@ def test_record_signal_called_only_at_the_three_intended_sites() -> None:
 def test_mark_knowledge_search_called_only_at_the_search_tool_site() -> None:
     """Structural guard — mark_knowledge_search_called() ต้องถูกเรียกแค่ 1 จุดเท่านั้น: จุดที่จัดการ
     search_camt_knowledge_base tool call ห้ามถูกเรียกจาก flag_off_topic branch เด็ดขาด (ถ้าเผลอเรียก
-    ที่นั่นด้วย เกณฑ์ NOISE จะพัง — session ที่ถามนอกเรื่องอย่างเดียวจะไม่ถูกนับเป็น NOISE ทั้งที่ควรเป็น)"""
+    ที่นั่นด้วย session ที่ถามนอกเรื่องอย่างเดียวจะถูกนับ "เรียก search" ผิด ๆ ทั้งที่ไม่เคยเรียกจริง)"""
     import inspect
 
     source = inspect.getsource(voice_module)
@@ -266,4 +312,21 @@ def test_mark_knowledge_search_called_only_at_the_search_tool_site() -> None:
     off_topic_branch = source[off_topic_branch_start:off_topic_branch_end]
     assert "mark_knowledge_search_called" not in off_topic_branch, (
         "ห้ามเรียก mark_knowledge_search_called() จาก flag_off_topic branch"
+    )
+    assert "mark_off_topic_flagged" in off_topic_branch, (
+        "flag_off_topic branch ต้องเรียก mark_off_topic_flagged() ด้วย ไม่งั้น off-topic-only "
+        "session จะถูกนับเป็น NOISE ผิด ๆ (เกณฑ์ใหม่ 2026-09-09: off-topic ไม่ใช่ NOISE)"
+    )
+
+
+def test_mark_off_topic_flagged_only_at_the_flag_off_topic_site() -> None:
+    """Structural guard — mark_off_topic_flagged() ต้องถูกเรียกแค่ 1 จุด (ใน flag_off_topic branch)
+    ห้ามถูกเรียกจากจุดจัดการ search_camt_knowledge_base เด็ดขาด (ถ้าเผลอเรียกที่นั่นด้วยจะไม่กระทบ
+    ความถูกต้องของ NOISE โดยตรง แต่ผิดเจตนา — mark_off_topic_flagged มีไว้แทน "ถามนอกเรื่อง"
+    เท่านั้น)"""
+    import inspect
+
+    source = inspect.getsource(voice_module)
+    assert source.count(".mark_off_topic_flagged()") == 1, (
+        "mark_off_topic_flagged() ต้องถูกเรียกแค่จุดเดียว (ใน flag_off_topic branch เท่านั้น)"
     )
