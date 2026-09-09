@@ -21,7 +21,7 @@
  * mechanism จริง — เก็บไว้เป็น regression coverage ของตรรกะทั่วไปเท่านั้น (ดูหมายเหตุใน describe เอง)
  */
 import { describe, expect, it } from "vitest";
-import { computeChunkSchedule, floatTo16BitPCM, pcm16ToFloat32, rmsOf } from "./useVoiceSocket";
+import { computeChunkSchedule, floatTo16BitPCM, isScheduledAudioPlaying, pcm16ToFloat32, rmsOf } from "./useVoiceSocket";
 
 describe("floatTo16BitPCM / pcm16ToFloat32 roundtrip", () => {
   it("แปลงไป-กลับได้ค่าใกล้เคียงเดิม (คลาดเคลื่อนได้แค่ระดับ quantization ของ int16)", () => {
@@ -51,6 +51,19 @@ describe("rmsOf", () => {
 
   it("สัญญาณสลับ +1/-1 ต้องได้ RMS = 1 (ไม่หักล้างกันเป็น 0)", () => {
     expect(rmsOf(new Float32Array([1, -1, 1, -1]))).toBeCloseTo(1, 6);
+  });
+});
+
+describe("isScheduledAudioPlaying", () => {
+  const chunks = [{ startTime: 10.01, endTime: 10.11 }];
+
+  it("does not treat the recovery-margin silence before a chunk as bot speech", () => {
+    expect(isScheduledAudioPlaying(chunks, 10.005)).toBe(false);
+  });
+
+  it("mutes only during the actual PCM interval", () => {
+    expect(isScheduledAudioPlaying(chunks, 10.05)).toBe(true);
+    expect(isScheduledAudioPlaying(chunks, 10.11)).toBe(false);
   });
 });
 
