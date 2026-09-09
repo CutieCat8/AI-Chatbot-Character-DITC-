@@ -26,6 +26,32 @@ const LISTENING_HANGOVER_MS = 900;
 const BOT_SPEECH_END_HANGOVER_MS = 700;
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
 
+// ⚠️ ทดลองแก้บั๊ก "เสียงติ๊ก/ป็อบแทรกระหว่างแมวพูด" (2026-09-08) — ยังไม่ยืนยันด้วยอุปกรณ์จริง/หูจริง
+// ห้ามเชื่อว่าหายแล้วจนกว่าจะรัน docs/click-noise-manual-test-plan.md บนแท็บเล็ตจริง (ดู CLAUDE.md)
+//
+// รอบแรก (ก่อนหน้านี้ในวันเดียวกัน) เคยใส่ margin แค่ตอน flush ก้อนแรกของเทิร์นเท่านั้น เพราะเดาว่า
+// สาเหตุคือลูป synchronous ตอนเทิร์นเริ่ม — **ผิด** ใส่ diagnostic logging จริงแล้วเก็บหลักฐานจาก
+// ผู้ใช้ทดสอบบน Mac (console `[click-noise-debug]`, 2026-09-08 บ่าย): **gap ทั้งหมด 11 ครั้งที่เจอ
+// เป็น `origin=stream` ล้วนๆ ไม่มี `origin=flush` แม้แต่ครั้งเดียว** — แปลว่า mechanism จริงคือตอน
+// schedule ทีละก้อนที่มาจาก WS ระหว่างเทิร์น (chunk มาช้ากว่าจังหวะเล่นจริง) ไม่ใช่ลูป flush ตอนเริ่ม
+// เทิร์นตามที่ CLAUDE.md เดาไว้แต่แรก — ขนาด gap เล็กที่เจอจริง (ตัดกลุ่มใหญ่ที่เป็นความเงียบระหว่าง
+// เทิร์นทิ้ง เพราะไม่มีใครได้ยิน): 5.8ms, 40.6ms, 69.6ms, 75.4ms
+//
+// จึงย้าย margin มาใช้ใน computeChunkSchedule ตรงๆ (ใส่ทุกครั้งที่เกิด hadGap ไม่ว่า origin ไหน)
+// แทนที่จะใส่แค่จุดเดียวตอน flush — ครอบคลุมทั้ง 2 เส้นทางจริง ไม่ต้อง diagnose ซ้ำว่า origin ไหน
+// สำคัญกว่ากัน (ข้อมูลจริงบอกแล้วว่า stream สำคัญกว่ามาก)
+//
+// ⚠️ trade-off ที่ต้องรู้ (ยืนยันด้วยแบบจำลองแล้ว ไม่ใช่แค่เดา — ดู useVoiceSocket.test.ts): ใส่ margin
+// ทุกครั้งที่ hadGap ไม่ได้ลดขนาด gap ครั้งนั้นๆ ที่กำลังเกิด (จริงๆ ทำให้ครั้งนั้น "ใหญ่ขึ้น" อีก
+// margin หนึ่ง) แต่จะเพิ่ม lead time ให้ก้อนถัดๆไปมีโอกาสไม่ gap ซ้ำในช่วงสั้นๆ ถัดมา — เป็นการแลก
+// "ความถี่" กับ "ขนาดครั้งที่เกิด" ไม่รู้ว่าหูมนุษย์จะรู้สึกดีขึ้นหรือแย่ลงจนกว่าจะฟังจริง เสี่ยงซ้ำรอย
+// บั๊กเดิมที่เคยลอง fade แล้วแย่ลงกว่าเดิม (commit 48b4860/32f646c ที่ CLAUDE.md สั่งห้ามลองซ้ำ — อันนี้
+// คนละกลไกกับ fade ไม่ได้แตะการ fade เข้า-ออกเลย)
+//
+// เผื่อไม่ช่วย/แย่ลง: ตั้งค่านี้เป็น 0 เพื่อ revert กลับพฤติกรรมเดิมได้ทันที (จุดเดียวจบ)
+const CHUNK_RECOVERY_MARGIN_MS = 10;
+const CHUNK_RECOVERY_MARGIN_SEC = CHUNK_RECOVERY_MARGIN_MS / 1000;
+
 // backend รันคนละ origin กับหน้านี้ (5174 vs 8000) ต่อ WS ตรง ๆ ได้เลย ไม่ติด CORS (WS ไม่ผ่าน
 // browser CORS preflight เหมือน HTTP ปกติ — ยืนยันจาก source ของ Starlette CORSMiddleware ตรง ๆ
 // (`if scope["type"] != "http": ปล่อยผ่านเลย`) และ routers/voice.py ก็ไม่เช็ค origin เองอยู่แล้ว)
@@ -74,7 +100,7 @@ interface UseVoiceSocketResult {
   debugVad: { rms: number; isSpeechNow: boolean; wasSpeech: boolean } | null;
 }
 
-function floatTo16BitPCM(float32: Float32Array): ArrayBuffer {
+export function floatTo16BitPCM(float32: Float32Array): ArrayBuffer {
   const buf = new ArrayBuffer(float32.length * 2);
   const view = new DataView(buf);
   for (let i = 0; i < float32.length; i++) {
@@ -84,17 +110,45 @@ function floatTo16BitPCM(float32: Float32Array): ArrayBuffer {
   return buf;
 }
 
-function pcm16ToFloat32(buf: ArrayBuffer): Float32Array<ArrayBuffer> {
+export function pcm16ToFloat32(buf: ArrayBuffer): Float32Array<ArrayBuffer> {
   const int16 = new Int16Array(buf);
   const out = new Float32Array(int16.length);
   for (let i = 0; i < int16.length; i++) out[i] = int16[i] / 32768;
   return out;
 }
 
-function rmsOf(float32: Float32Array): number {
+export function rmsOf(float32: Float32Array): number {
   let sum = 0;
   for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
   return Math.sqrt(sum / float32.length);
+}
+
+/**
+ * ตัดสินใจ "ก้อนเสียงถัดไปควรเริ่มเล่นตอนไหน" ล้วน ๆ — แยกออกมาจาก scheduleChunk เดิมเพื่อเทสได้โดย
+ * ไม่ต้องพึ่ง AudioContext จริง ตรรกะเดิมเป๊ะ ไม่เปลี่ยนพฤติกรรม (ดู scheduleChunk ที่เรียกฟังก์ชันนี้)
+ *
+ * hadGap=true คือกรณีต้องสงสัยของบั๊กเสียงติ๊ก/ป็อบ (ดู CLAUDE.md หัวข้อ "เสียงติ๊ก/ป็อบแทรกระหว่าง
+ * แมวพูด"): ก้อนถัดไปถูกวางแผนไว้ให้เริ่มที่ prevNextPlayTime (ต่อจากก้อนก่อนแบบไม่มีช่องว่าง) แต่
+ * ตอนถึงเวลาจะ schedule จริง เวลาปัจจุบัน (now) ไหลเลย prevNextPlayTime ไปแล้ว ต้องเลื่อนไปเริ่มที่
+ * now แทน เกิดช่องว่างเงียบสั้น ๆ ระหว่างก้อนที่ตั้งใจให้ต่อกันสนิท — **ยืนยันด้วยหลักฐานจริงแล้ว
+ * (2026-09-08, diagnostic logging) ว่าเกิดจากเส้นทาง "stream" (schedule ทีละก้อนตอนรับผ่าน WS
+ * ระหว่างเทิร์น) เป็นหลัก ไม่ใช่ "flush" (ลูปตอนเทิร์นเริ่ม) ตามที่เคยเดาไว้แต่แรก** ดูรายละเอียดที่
+ * CHUNK_RECOVERY_MARGIN_MS ด้านบนไฟล์
+ *
+ * recoveryMarginSec: ใส่ margin เฉพาะตอนเกิด hadGap เท่านั้น (ไม่กระทบเคสต่อกันสนิทปกติเลย) — ไม่ลด
+ * ขนาด gap ที่กำลังเกิดครั้งนี้ (จริงๆ ทำให้ครั้งนี้ใหญ่ขึ้นอีก margin หนึ่ง) แต่ให้ lead time ก้อนถัดไป
+ * มีโอกาสไม่ gap ซ้ำในช่วงสั้นๆ ถัดมา (แลกความถี่กับขนาด — ดูเทส "recovery margin" ประกอบ) default 0
+ * = พฤติกรรมเดิมเป๊ะ
+ */
+export function computeChunkSchedule(
+  prevNextPlayTime: number,
+  now: number,
+  duration: number,
+  recoveryMarginSec: number = 0,
+): { startTime: number; nextPlayTime: number; hadGap: boolean } {
+  const hadGap = prevNextPlayTime < now;
+  const startTime = hadGap ? now + recoveryMarginSec : prevNextPlayTime;
+  return { startTime, nextPlayTime: startTime + duration, hadGap };
 }
 
 /**
@@ -219,17 +273,36 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     analyser.connect(audioCtx.destination);
     analyserRef.current = analyser;
 
-    const scheduleChunk = (arrayBuffer: ArrayBuffer) => {
+    // ⚠️ DIAGNOSTIC ชั่วคราว (2026-09-08) — เพื่อดูหลักฐานจริงว่า hadGap เกิดตอนไหน/ถี่แค่ไหน ก่อน
+    // จะเดาต่อว่าจะแก้ยังไงต่อ (ผู้ใช้ทดสอบบน Mac แล้วยังได้ยินเสียงติ๊ก ต้องดูว่า mechanism ที่สงสัย
+    // ไว้ตรงกับที่เกิดจริงไหม) — ลบออกทันทีที่ได้หลักฐานพอ (แนวทางเดียวกับที่เคยทำแล้วใน commit
+    // 3542c85 "debug: remove click-noise diagnostic logging, document findings") ห้ามลืมลบก่อน commit
+    let gapDebugCount = 0;
+
+    const scheduleChunk = (arrayBuffer: ArrayBuffer, origin: "flush" | "stream") => {
       const float32 = pcm16ToFloat32(arrayBuffer);
       const buffer = audioCtx.createBuffer(1, float32.length, OUTPUT_SAMPLE_RATE);
       buffer.copyToChannel(float32, 0);
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(outputGain);
-      const now = audioCtx.currentTime;
-      if (nextPlayTimeRef.current < now) nextPlayTimeRef.current = now;
-      source.start(nextPlayTimeRef.current);
-      nextPlayTimeRef.current += buffer.duration;
+      const prevNextPlayTime = nextPlayTimeRef.current;
+      const { startTime, nextPlayTime, hadGap } = computeChunkSchedule(
+        nextPlayTimeRef.current,
+        audioCtx.currentTime,
+        buffer.duration,
+        CHUNK_RECOVERY_MARGIN_SEC,
+      );
+      if (hadGap) {
+        gapDebugCount += 1;
+        const gapMs = (startTime - prevNextPlayTime) * 1000;
+        console.warn(
+          `[click-noise-debug] #${gapDebugCount} gap=${gapMs.toFixed(1)}ms origin=${origin} ` +
+            `t=${startTime.toFixed(3)}s chunkDurMs=${(buffer.duration * 1000).toFixed(1)}`,
+        );
+      }
+      source.start(startTime);
+      nextPlayTimeRef.current = nextPlayTime;
     };
 
     const pendingQueue: ArrayBuffer[] = [];
@@ -239,12 +312,15 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         playbackBufferedMsRef.current += (arrayBuffer.byteLength / 2 / OUTPUT_SAMPLE_RATE) * 1000;
         if (playbackBufferedMsRef.current >= JITTER_BUFFER_MS) {
           playbackStartedRef.current = true;
+          // margin ย้ายไปอยู่ใน computeChunkSchedule แล้ว (ดูคอมเมนต์ CHUNK_RECOVERY_MARGIN_MS
+          // ด้านบนไฟล์ — หลักฐานจริงยืนยันว่า origin=flush นี้แทบไม่เกิด hadGap เลย ตัวที่เกิดจริง
+          // คือ origin=stream) ตรงนี้จึงไม่ต้องมี margin ซ้ำซ้อนสองที่
           nextPlayTimeRef.current = audioCtx.currentTime;
-          for (const chunk of pendingQueue) scheduleChunk(chunk);
+          for (const chunk of pendingQueue) scheduleChunk(chunk, "flush");
           pendingQueue.length = 0;
         }
       } else {
-        scheduleChunk(arrayBuffer);
+        scheduleChunk(arrayBuffer, "stream");
       }
     };
 
@@ -431,7 +507,14 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       setErrorMessage("เชื่อมต่อ WebSocket ไม่สำเร็จ — เช็คว่า backend รันอยู่ที่ localhost:8000 หรือเปล่า");
       setConnectionState("error");
     };
-    ws.onclose = () => {
+    ws.onclose = (closeEvent) => {
+      // backend ปิด WS เองพร้อม code+reason ในบางเคส (เช่น ไม่มี GEMINI_API_KEY ใน .env —
+      // ดู routers/voice.py `websocket.close(code=1011, reason=...)`) เดิมโค้ดทิ้ง event ไปเฉยๆ
+      // ผู้ใช้กดเริ่มคุยแล้วเห็นแค่กลับไป idle เงียบๆ ไม่รู้เลยว่าทำไม (2026-09-08 เจอเคสจริง) —
+      // โชว์ reason ให้เห็นถ้ามี แทนที่จะเงียบเหมือนไม่มีอะไรเกิดขึ้น (code 1000 = ปิดปกติ ไม่ต้องโชว์)
+      if (closeEvent.code !== 1000 && closeEvent.reason) {
+        setErrorMessage(`การเชื่อมต่อถูกปิด (${closeEvent.code}): ${closeEvent.reason}`);
+      }
       setConnectionState((prev) => (prev === "error" ? prev : "closed"));
       // เจอจริงตอนทดสอบ: ถ้า WS หลุดกะทันหัน (ไม่ใช่กดปุ่ม "หยุดคุย" — นั่นไปทาง disconnect()
       // ที่ reset ครบอยู่แล้ว) ตอนแมวกำลังโกรธ/ฟัง/คิดอยู่พอดี ค่าพวกนี้จะไม่มีใคร reset เลย ค้างข้าม
