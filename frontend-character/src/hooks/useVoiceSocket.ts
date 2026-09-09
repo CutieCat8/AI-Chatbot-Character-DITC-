@@ -151,6 +151,13 @@ export function computeChunkSchedule(
   return { startTime, nextPlayTime: startTime + duration, hadGap };
 }
 
+export type ScheduledAudio = { startTime: number; endTime: number };
+
+/** True only while an actual PCM chunk is playing, not during queued silence. */
+export function isScheduledAudioPlaying(scheduled: ScheduledAudio[], now: number): boolean {
+  return scheduled.some(({ startTime, endTime }) => startTime <= now && now < endTime);
+}
+
 /**
  * ต่อไมค์จริงในเบราว์เซอร์ <-> WS (/api/voice/ws) <-> Gemini Live <-> เล่นเสียงตอบจริง
  * โปรโตคอลเดียวกับ backend/app/static/voice_test.html (พิสูจน์แล้วว่าใช้งานได้จริง) — พอร์ตมาเป็น
@@ -180,6 +187,9 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const nextPlayTimeRef = useRef(0);
+  // `nextPlayTimeRef` includes recovery margin for queueing. Keep actual PCM
+  // intervals separately so that margin silence does not mute the microphone.
+  const scheduledAudioRef = useRef<ScheduledAudio[]>([]);
   const playbackBufferedMsRef = useRef(0);
   const playbackStartedRef = useRef(false);
   const rafIdRef = useRef<number | null>(null);
@@ -217,7 +227,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   /** แมวกำลังพูด/มีเสียงค้างเล่นอยู่ไหม (ใช้ตัดสินใจ half-duplex + สลับ state) */
   const isBotSpeaking = useCallback(() => {
     const ctx = audioCtxRef.current;
-    return !!ctx && nextPlayTimeRef.current > ctx.currentTime;
+    if (!ctx) return false;
+    const now = ctx.currentTime;
+    scheduledAudioRef.current = scheduledAudioRef.current.filter(({ endTime }) => endTime > now);
+    return isScheduledAudioPlaying(scheduledAudioRef.current, now);
   }, []);
 
   const disconnect = useCallback(() => {
@@ -261,6 +274,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     // ก็ตาม — resume() ตรงนี้ (ยังอยู่ในเส้นทางเดียวกับ gesture handler) ชัวร์กว่าปล่อยเดา
     void audioCtx.resume();
     nextPlayTimeRef.current = 0;
+    scheduledAudioRef.current = [];
     playbackBufferedMsRef.current = 0;
     playbackStartedRef.current = false;
 
@@ -273,36 +287,22 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     analyser.connect(audioCtx.destination);
     analyserRef.current = analyser;
 
-    // ⚠️ DIAGNOSTIC ชั่วคราว (2026-09-08) — เพื่อดูหลักฐานจริงว่า hadGap เกิดตอนไหน/ถี่แค่ไหน ก่อน
-    // จะเดาต่อว่าจะแก้ยังไงต่อ (ผู้ใช้ทดสอบบน Mac แล้วยังได้ยินเสียงติ๊ก ต้องดูว่า mechanism ที่สงสัย
-    // ไว้ตรงกับที่เกิดจริงไหม) — ลบออกทันทีที่ได้หลักฐานพอ (แนวทางเดียวกับที่เคยทำแล้วใน commit
-    // 3542c85 "debug: remove click-noise diagnostic logging, document findings") ห้ามลืมลบก่อน commit
-    let gapDebugCount = 0;
-
-    const scheduleChunk = (arrayBuffer: ArrayBuffer, origin: "flush" | "stream") => {
+    const scheduleChunk = (arrayBuffer: ArrayBuffer) => {
       const float32 = pcm16ToFloat32(arrayBuffer);
       const buffer = audioCtx.createBuffer(1, float32.length, OUTPUT_SAMPLE_RATE);
       buffer.copyToChannel(float32, 0);
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(outputGain);
-      const prevNextPlayTime = nextPlayTimeRef.current;
-      const { startTime, nextPlayTime, hadGap } = computeChunkSchedule(
+      const { startTime, nextPlayTime } = computeChunkSchedule(
         nextPlayTimeRef.current,
         audioCtx.currentTime,
         buffer.duration,
         CHUNK_RECOVERY_MARGIN_SEC,
       );
-      if (hadGap) {
-        gapDebugCount += 1;
-        const gapMs = (startTime - prevNextPlayTime) * 1000;
-        console.warn(
-          `[click-noise-debug] #${gapDebugCount} gap=${gapMs.toFixed(1)}ms origin=${origin} ` +
-            `t=${startTime.toFixed(3)}s chunkDurMs=${(buffer.duration * 1000).toFixed(1)}`,
-        );
-      }
       source.start(startTime);
       nextPlayTimeRef.current = nextPlayTime;
+      scheduledAudioRef.current.push({ startTime, endTime: startTime + buffer.duration });
     };
 
     const pendingQueue: ArrayBuffer[] = [];
@@ -316,11 +316,11 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           // ด้านบนไฟล์ — หลักฐานจริงยืนยันว่า origin=flush นี้แทบไม่เกิด hadGap เลย ตัวที่เกิดจริง
           // คือ origin=stream) ตรงนี้จึงไม่ต้องมี margin ซ้ำซ้อนสองที่
           nextPlayTimeRef.current = audioCtx.currentTime;
-          for (const chunk of pendingQueue) scheduleChunk(chunk, "flush");
+          for (const chunk of pendingQueue) scheduleChunk(chunk);
           pendingQueue.length = 0;
         }
       } else {
-        scheduleChunk(arrayBuffer, "stream");
+        scheduleChunk(arrayBuffer);
       }
     };
 
