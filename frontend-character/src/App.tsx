@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import CatFace, { type CatFaceState, useBlink, useGazeLoop } from "./components/character/CatFace";
-import CharacterPage from "./components/character/CharacterPage";
+import { FigmaPreviewControls, useFigmaPreviewControls } from "./components/character/CharacterPage";
 import { ControlPanel } from "./components/ControlPanel";
+import { HamburgerMenu } from "./components/HamburgerMenu";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
 import { useAmplitude } from "./hooks/useAmplitude";
 import { LOCAL_VAD_RMS_THRESHOLD, useVoiceSocket } from "./hooks/useVoiceSocket";
@@ -85,6 +86,10 @@ export function App() {
   // ---- โหมดคุยด้วยเสียงจริง (Gemini Live ผ่าน backend WS) ----
   const voice = useVoiceSocket({ debug: isDebug });
 
+  // ---- โหมดพรีวิวหน้าใหม่จาก Figma (เดิม CharacterPage.tsx คุมเอง แยก state/controls ออกมาแล้ว
+  // เพื่อขับ stage เต็มจอตัวเดียวกันกับโหมดอื่น ดู CharacterPage.tsx) ----
+  const figma = useFigmaPreviewControls();
+
   const displayState = mode === "live-voice" ? voice.catState : fileTestState;
   const displayAmplitude = mode === "live-voice" ? voice.amplitude : isPlaying ? fileAmplitude : 0;
   // file-test ไม่มีไมค์ผู้ใช้จริง เสียงที่เล่นคือเสียงแมวเสมอ ("wake" ในโหมดนี้ = กำลังเล่นไฟล์เสียง)
@@ -92,24 +97,37 @@ export function App() {
   const displayBotSpeaking = mode === "live-voice" ? voice.botSpeaking : isPlaying;
   const displayIsThinking = mode === "live-voice" ? voice.isThinking : false;
   const displayOffTopic = mode === "live-voice" ? voice.offTopic : false;
-  const faceState = toCatFaceState(displayState, displayBotSpeaking, displayIsThinking, displayOffTopic);
 
   // เดิม App.tsx ไม่เคยส่ง gaze/blink ให้ CatFace เลย (ตาค้างนิ่งตลอด) — ใช้ logic เดียวกับที่
   // CharacterPage.tsx (หน้าพรีวิว) ใช้: กระพริบตลอดยกเว้นตอนหลับ (ถี่ขึ้นตอน thinking ให้ดูต่างจาก
   // listening ชัดเจน — หูก็หยุดสลับกลับเป็นท่าปกติตอน thinking ด้วย ดู CatFace.tsx)
-  const blink = useBlink({ enabled: faceState !== "sleeping", rate: faceState === "thinking" ? 0.45 : 1 });
+  // ใช้ได้เฉพาะโหมด live-voice/file-test — โหมด figma-preview มี state/blink/gaze ของตัวเองจาก
+  // useFigmaPreviewControls() (มี toggle "auto" แยกต่างหาก เก็บพฤติกรรมเดิมของหน้าพรีวิวไว้ครบ)
+  const liveFaceState = toCatFaceState(displayState, displayBotSpeaking, displayIsThinking, displayOffTopic);
+  const liveBlink = useBlink({ enabled: liveFaceState !== "sleeping", rate: liveFaceState === "thinking" ? 0.45 : 1 });
   // ตากลอกย้ายมาไว้ตอน "idle" แทน "listening" (ทดสอบเสียงจริง 2026-09-08) — คนตั้งใจฟังจะจ้องนิ่ง
   // ไม่กรอกตา ส่วนตอน idle (ยังไม่มีใครคุยด้วย) กรอกตาไปมาสื่อว่ากำลังมองรอบ ๆ รอคนมาคุย — หมายเหตุ:
   // ตอนนี้ "idle" ใช้ eyes:"ring" ใน CatFace.tsx (วงกลม outline ไม่มี pupil overlay ให้ขยับเลย ดู
   // showPupils ในไฟล์นั้น) เปลี่ยนแค่ตรงนี้อย่างเดียวจะยังไม่เห็นผลภาพอะไรจนกว่าจะแก้ CatFace.tsx
   // ให้ idle ใช้ eyes:"gaze" ด้วย (ไฟล์นั้นตั้งใจไม่แตะรอบนี้ตามที่สั่ง)
-  const gaze = useGazeLoop({ enabled: faceState === "idle" });
+  const liveGaze = useGazeLoop({ enabled: liveFaceState === "idle" });
+
+  const faceState = mode === "figma-preview" ? figma.state : liveFaceState;
+  const activeAmplitude = mode === "figma-preview" ? 0 : displayAmplitude;
+  const activeBlink = mode === "figma-preview" ? figma.blink : liveBlink;
+  const activeGaze = mode === "figma-preview" ? figma.gaze : liveGaze;
 
   return (
     <div className="app">
       <audio ref={(el) => setAudioEl(el)} onEnded={handleAudioEnded} style={{ display: "none" }} />
 
-      <div className="app-column">
+      {/* จอจริงต้องเป็นหน้าแมวเต็มจอเสมอ (2026-09-10 — ดู CLAUDE.md) เต็มทุกโหมด ไม่ใช่แค่ live-voice
+          ปุ่ม/แผงควบคุมทั้งหมดที่เคยเรียงข้าง ๆ ย้ายไปอยู่ใน HamburgerMenu มุมขวาบนแทน */}
+      <div className="app-stage">
+        <CatFace state={faceState} amplitude={activeAmplitude} gaze={activeGaze} blink={activeBlink} />
+      </div>
+
+      <HamburgerMenu>
         <div className="mode-tabs">
           <button
             className={`mode-tab ${mode === "live-voice" ? "mode-tab--active" : ""}`}
@@ -131,36 +149,29 @@ export function App() {
           </button>
         </div>
 
-        {mode === "figma-preview" ? (
-          <CharacterPage />
-        ) : (
-          <div className="app-stage">
-            <CatFace state={faceState} amplitude={displayAmplitude} gaze={gaze} blink={blink} />
-          </div>
+        {mode === "live-voice" && (
+          <LiveVoicePanel
+            connectionState={voice.connectionState}
+            transcript={voice.transcript}
+            errorMessage={voice.errorMessage}
+            onConnect={voice.connect}
+            onDisconnect={voice.disconnect}
+          />
         )}
-      </div>
-
-      {mode === "live-voice" && (
-        <LiveVoicePanel
-          connectionState={voice.connectionState}
-          transcript={voice.transcript}
-          errorMessage={voice.errorMessage}
-          onConnect={voice.connect}
-          onDisconnect={voice.disconnect}
-        />
-      )}
-      {mode === "file-test" && (
-        <ControlPanel
-          state={fileTestState}
-          onStateChange={setFileTestState}
-          onFileSelected={handleFileSelected}
-          onPlay={handlePlay}
-          onPause={handlePause}
-          isPlaying={isPlaying}
-          hasAudio={hasAudio}
-          amplitude={fileAmplitude}
-        />
-      )}
+        {mode === "file-test" && (
+          <ControlPanel
+            state={fileTestState}
+            onStateChange={setFileTestState}
+            onFileSelected={handleFileSelected}
+            onPlay={handlePlay}
+            onPause={handlePause}
+            isPlaying={isPlaying}
+            hasAudio={hasAudio}
+            amplitude={fileAmplitude}
+          />
+        )}
+        {mode === "figma-preview" && <FigmaPreviewControls {...figma} />}
+      </HamburgerMenu>
 
       {isDebug && mode === "live-voice" && (
         <div

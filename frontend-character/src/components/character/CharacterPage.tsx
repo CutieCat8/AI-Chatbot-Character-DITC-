@@ -11,6 +11,11 @@ import "./CharacterPage.css";
  * ไม่มี react-router-dom ในโปรเจกต์ด้วย (README เดิมบอกให้เพิ่ม <Route path="/character">) —
  * คอมโพเนนต์นี้เลยออกแบบใหม่ให้เป็น "เนื้อหา" เปล่า ๆ ไม่ห่อ full-page wrapper ของตัวเอง
  * ประกอบเป็นแท็บที่ 3 ใน App.tsx ได้ตรง ๆ (ดู App.tsx โหมด "figma-preview")
+ *
+ * แยก state/controls ออกจาก stage แล้ว (2026-09-10 — จอจริงต้องเป็นหน้าแมวเต็มจอเสมอ ปุ่มทดสอบ
+ * ทั้งหมดย้ายไปอยู่ใน hamburger menu แทน ดู App.tsx) — `useFigmaPreviewControls` คุม state/auto
+ * ล้วน ๆ, `FigmaPreviewControls` เป็นแค่ปุ่ม/toggle (ไม่มี stage ของตัวเอง) ส่วน `CharacterPage`
+ * (default export) ยังคงพฤติกรรมเดิมทั้งหมดไว้เผื่อมีที่ใช้แบบ standalone นอก App.tsx
  */
 
 const LABEL: Record<CatFaceState, string> = {
@@ -23,7 +28,7 @@ const LABEL: Record<CatFaceState, string> = {
   angry: "นอกขอบเขต",
 };
 
-export default function CharacterPage() {
+export function useFigmaPreviewControls() {
   const [state, setState] = useState<CatFaceState>("idle");
   const [auto, setAuto] = useState(true);
 
@@ -36,12 +41,17 @@ export default function CharacterPage() {
   // ตากลอกเฉพาะตอนกำลังฟัง
   const gaze = useGazeLoop({ enabled: auto && state === "listening" });
 
-  return (
-    <div className="figma-preview">
-      <div className="figma-preview__stage">
-        <CatFace state={state} gaze={gaze} blink={blink} />
-      </div>
+  return { state, setState, auto, setAuto, blink, gaze };
+}
 
+type FigmaPreviewControlsProps = Pick<
+  ReturnType<typeof useFigmaPreviewControls>,
+  "state" | "setState" | "auto" | "setAuto" | "gaze"
+>;
+
+export function FigmaPreviewControls({ state, setState, auto, setAuto, gaze }: FigmaPreviewControlsProps) {
+  return (
+    <>
       <div className="figma-preview__buttons">
         {CAT_FACE_STATES.map((s) => (
           <button
@@ -63,6 +73,19 @@ export default function CharacterPage() {
         state: <code>{state}</code> · gaze: <code>[{gaze.join(", ")}]</code> ·{" "}
         {Object.keys(STATES).length} states
       </p>
+    </>
+  );
+}
+
+export default function CharacterPage() {
+  const controls = useFigmaPreviewControls();
+
+  return (
+    <div className="figma-preview">
+      <div className="figma-preview__stage">
+        <CatFace state={controls.state} gaze={controls.gaze} blink={controls.blink} />
+      </div>
+      <FigmaPreviewControls {...controls} />
     </div>
   );
 }

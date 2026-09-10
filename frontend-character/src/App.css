@@ -9,23 +9,29 @@ body {
 }
 
 .app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* หน้าแมวเต็มจอ (2026-09-10) — ตู้จริงมีกระจกครอบ ไม่มี UI อื่นให้เห็นเลยนอกจากหน้าแมว ดู CLAUDE.md
+   preserveAspectRatio="xMidYMid meet" ใน CatFace.tsx เอง จะเลตเตอร์บ็อกซ์ (แถบดำ) ถ้าอัตราส่วนจอ
+   จริงไม่ตรง 1440:900 เป๊ะ ซึ่งพื้นหลังดำของ .app-stage กลืนกับแถบนั้นพอดีอยู่แล้ว */
+.app-stage {
+  position: absolute;
+  inset: 0;
+  background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 40px;
-  min-height: 100vh;
-  padding: 20px;
 }
 
-.app-column {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
+/* เมนูทดสอบ/debug ทั้งหมด (สลับโหมด + แผงควบคุมของแต่ละโหมด) อยู่ใน HamburgerMenu.tsx แล้ว —
+   คลาสพวกนี้ยังใช้จัดปุ่มสลับโหมดข้างในลิ้นชักเหมือนเดิม แค่ไม่ได้วางเรียงข้างหน้าแมวอีกต่อไป */
 .mode-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   background: rgba(255, 255, 255, 0.08);
   padding: 4px;
@@ -33,6 +39,7 @@ body {
 }
 
 .mode-tab {
+  min-height: 44px;
   padding: 8px 16px;
   border-radius: 8px;
   border: none;
@@ -40,6 +47,17 @@ body {
   color: #aaa;
   font-size: 13px;
   cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.mode-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ddd;
+}
+
+.mode-tab:focus-visible {
+  outline: 2px solid #4a90d9;
+  outline-offset: 2px;
 }
 
 .mode-tab--active {
@@ -47,14 +65,6 @@ body {
   color: white;
 }
 
-.app-stage {
-  background: #000;
-  border-radius: 24px;
-  overflow: hidden;
-  width: 500px;
-  max-width: 90vw;
-  aspect-ratio: 1440 / 900; /* สัดส่วน viewBox ของ CatFace.tsx */
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.mode-tab--active:hover {
+  background: #4a90d9;
 }
