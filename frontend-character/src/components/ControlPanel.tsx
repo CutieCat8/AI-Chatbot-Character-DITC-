@@ -31,8 +31,6 @@ export function ControlPanel({
 }: Props) {
   return (
     <div className="control-panel">
-      <h2>ทดสอบ (ยังไม่ต่อ backend จริง)</h2>
-
       <div className="control-section">
         <label className="control-label">สถานะแมว</label>
         <div className="state-buttons">
@@ -50,14 +48,17 @@ export function ControlPanel({
 
       <div className="control-section">
         <label className="control-label">ไฟล์เสียงทดสอบ (lip-flap ตาม amplitude จริง)</label>
-        <input
-          type="file"
-          accept="audio/*"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onFileSelected(file);
-          }}
-        />
+        <div className="file-picker">
+          <input
+            type="file"
+            accept="audio/*"
+            className="file-input"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onFileSelected(file);
+            }}
+          />
+        </div>
         <div className="control-row">
           <button onClick={onPlay} disabled={!hasAudio || isPlaying}>
             ▶ เล่น
