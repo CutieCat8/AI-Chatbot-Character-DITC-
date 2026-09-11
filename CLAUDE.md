@@ -77,8 +77,15 @@
 - ตอบด้วยเสียง + ภาพประกอบ ไม่ใช่เสียงอย่างเดียว
 - ดึงข้อมูลสดจากเว็บ DITC เมื่อไม่พบในฐานความรู้
 - แสดงอารมณ์ประกอบบทสนทนา
-- Wake word "สวัสดีดิตซีแคท" — สโคประบุว่าต้องทดสอบกับผู้ใช้จริงหลายคน (ยังไม่มี wake-word
-  detector อยู่เลยทั้งโปรเจกต์ ณ 2026-09-07 — เริ่มคุยด้วยการกดปุ่มมือเท่านั้น)
+- Wake word — **ยังอยู่ในสโคป ไม่ได้ตัดออก** (ต่างจาก "Idle mode" ด้านบนที่ตัดจริง) วลีที่เขียนไว้เดิม
+  "สวัสดีดิตซีแคท" **ผิด แก้แล้ว 2026-09-11** เริ่มเทรนโมเดล wake-word จริงแล้ว (ดู
+  `docs/superpowers/specs/2026-09-08-wake-word-design.md` และ handoff doc คู่กัน) เจ้าของงานยืนยันวลี
+  positive จริงคือ 6 รายการใน `generate_dataset.py` POSITIVE_TEXTS (แหล่งความจริง อย่า list ซ้ำที่นี่
+  เพราะจะหลุดตามกันได้ — ไปอ่านไฟล์นั้นตรงๆ) **ไม่มีคำว่า "แคท"** ในรายการไหนเลย สโคป (Overview) ยัง
+  บังคับว่าต้องทดสอบกับผู้ใช้จริงหลายคนก่อนเปิดใช้งานจริง — มี dev-only implementation แล้ว
+  (`frontend-character/src/hooks/useWakeWord.ts`, `?wakeword=1` ใน `App.tsx`) แต่โมเดลยัง **ไม่ผ่าน
+  production gate** ห้ามเปิดเป็น default ของ kiosk งานทั้งหมดยัง uncommitted อยู่ใน branch
+  `debug/voice-click-noise-investigation`
 
 ## ข้อกำหนดที่ห้ามละเมิด
 
@@ -106,7 +113,7 @@
   | `sleep` | `sleeping` | |
   | `wake` | `listening` / `thinking` / `speaking` | `listening`=กำลังฟังผู้ใช้, `thinking`=หยุดพูดแล้วรอ Gemini ตอบ (`isThinking`), `speaking`=แมวพูดตอบ (`botSpeaking`) — ทั้งหมดต่อกับไมค์จริงแล้ว (2026-09-07/08) |
   | *(offTopic flag ชนะทุก state)* | `angry` | ต่อกับ backend จริงแล้ว (2026-09-08) — Gemini เรียก tool `flag_off_topic` เอง (ทาง ข ไม่เดาจาก keyword) ส่ง `{"type":"off_topic"}` ผ่าน WS หมดอายุเองพร้อม `wake→transition→idle` ปกติ **และ**เคลียร์ทันทีถ้า WS หลุดกะทันหัน (`ws.onclose`) กันไม่ให้ค้างโกรธข้าม session ไปหาคนถัดไป |
-  | *(ไม่มี CatState ไหนแมปมา)* | `waking` | ยังไม่มีอะไรเรียกถึง — ต้องมี wake-word detector ก่อน (ยังไม่ทำ ดูหัวข้อ "ฟีเจอร์ในสโคปที่ยังไม่ได้ทำ")
+  | *(ไม่มี CatState ไหนแมปมา)* | `waking` | ยังไม่มีอะไรเรียกถึง — มี wake-word listener แบบ dev-only แล้ว (`useWakeWord.ts`) แต่ยังไม่ได้ต่อเข้า `waking` render-state และโมเดลยังไม่ผ่าน production gate ดูหัวข้อ "ฟีเจอร์ในสโคปที่ยังไม่ได้ทำ" |
 
   **`angry` ค้าง/หายกลางคัน — แก้แล้ว (2026-09-08):** เดิมสงสัยว่า error "1008 policy violation:
   The operation was aborted" ที่เจอตอนทดสอบเป็นอาการของเสียงสังเคราะห์ที่ใช้ทดสอบเอง — **ผิด** ยืนยัน

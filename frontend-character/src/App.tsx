@@ -3,7 +3,9 @@ import CatFace, { type CatFaceState, useBlink, useGazeLoop } from "./components/
 import CharacterPage from "./components/character/CharacterPage";
 import { ControlPanel } from "./components/ControlPanel";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
+import { WakeWordRecorder } from "./components/WakeWordRecorder";
 import { useAmplitude } from "./hooks/useAmplitude";
+import { useWakeWord } from "./hooks/useWakeWord";
 import { LOCAL_VAD_RMS_THRESHOLD, useVoiceSocket } from "./hooks/useVoiceSocket";
 import type { CatState } from "./types";
 import "./App.css";
@@ -28,11 +30,15 @@ type Mode = "file-test" | "live-voice" | "figma-preview";
  */
 function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boolean, offTopic: boolean): CatFaceState {
   if (offTopic) return "angry";
+  // botSpeaking ต้องชนะ catState เสมอ ไม่ใช่แค่ใต้ case "wake" — greet-first (wake-word) ทำให้แมวพูด
+  // ได้ตั้งแต่ catState ยังเป็น "sleep" อยู่ (ws.onopen ตั้ง sleep ก่อน แล้วรอ tick() เห็น
+  // isBotSpeaking()==true ค่อยเปลี่ยนเป็น wake — มีช่วงสั้น ๆ ที่เสียงเริ่มเล่นแล้วแต่ state ยังไม่ทัน
+  // อัปเดต) ไม่งั้นตาหลับปากไม่ขยับทั้งที่มีเสียงพูดออกมาจริง
+  if (botSpeaking) return "speaking";
   switch (state) {
     case "sleep":
       return "sleeping";
     case "wake":
-      if (botSpeaking) return "speaking";
       if (isThinking) return "thinking";
       return "listening";
     case "transition":
@@ -45,9 +51,14 @@ function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boole
 // ?debug=1 เปิด overlay โชว์ RMS/threshold สดของ local VAD — ไว้ให้ผู้ใช้ทดสอบด้วยเสียงจริงแล้ว
 // ตัดสินใจเรื่องปรับ threshold/hangover ร่วมกัน (ยังไม่แก้ logic การตรวจจับใด ๆ ในรอบนี้)
 const isDebug = new URLSearchParams(window.location.search).get("debug") === "1";
+// This is intentionally opt-in. The only current model is TTS-only and failed
+// the strict evaluation gate, so it must never become the normal kiosk path.
+const isWakeWordManualTest = new URLSearchParams(window.location.search).get("wakeword") === "1";
 
 export function App() {
   const [mode, setMode] = useState<Mode>("live-voice");
+  const [wakeWordDiagnostic, setWakeWordDiagnostic] = useState<{ confidence: number; hits: number } | null>(null);
+  const [recordingWakeSample, setRecordingWakeSample] = useState(false);
 
   // ---- โหมดทดสอบด้วยไฟล์เสียง (เดิม) ----
   const [fileTestState, setFileTestState] = useState<CatState>("idle");
@@ -84,6 +95,26 @@ export function App() {
 
   // ---- โหมดคุยด้วยเสียงจริง (Gemini Live ผ่าน backend WS) ----
   const voice = useVoiceSocket({ debug: isDebug });
+  // Wake-word owns a separate mic only while the Gemini half-duplex pipeline is
+  // inactive.  Once it calls connect(), this condition flips and releases it.
+  const wakeWordStatus = useWakeWord({
+    enabled:
+      isWakeWordManualTest &&
+      !recordingWakeSample &&
+      mode === "live-voice" &&
+      (voice.catState === "idle" || voice.catState === "sleep") &&
+      (voice.connectionState === "idle" || voice.connectionState === "closed"),
+    // greetFirst: เฉพาะทางนี้เท่านั้น — ปุ่ม "เริ่มคุย" ที่ LiveVoicePanel เรียก voice.connect() ตรงๆ
+    // ไม่มี flag นี้ ยังรอผู้ใช้พูดก่อนตามเดิม (ผู้ใช้กดปุ่มเองอยู่แล้ว ต่างจาก wake-word ที่ไม่มีปุ่ม
+    // ให้กดยืนยันอีกที) ดู docs/superpowers/specs/2026-09-08-wake-word-design.md
+    onDetected: () => { void voice.connect({ greetFirst: true }); },
+    // Diagnostic model only. It is ignored unless ?wakeword=1 is explicitly set.
+    modelUrl: "/models/wake-word-dev/model.json",
+    // Diagnostic-only calibration for the small real-speaker sample set. This
+    // is deliberately not enabled outside ?wakeword=1 and is not production-safe.
+    threshold: 0.90,
+    onScore: (confidence, hits) => setWakeWordDiagnostic({ confidence, hits }),
+  });
 
   const displayState = mode === "live-voice" ? voice.catState : fileTestState;
   const displayAmplitude = mode === "live-voice" ? voice.amplitude : isPlaying ? fileAmplitude : 0;
@@ -145,7 +176,9 @@ export function App() {
           connectionState={voice.connectionState}
           transcript={voice.transcript}
           errorMessage={voice.errorMessage}
-          onConnect={voice.connect}
+          // ห้ามส่ง voice.connect ตรงๆ — LiveVoicePanel ผูกกับ onClick ซึ่งจะส่ง MouseEvent มาเป็น
+          // arg ตัวแรก (กลายเป็น options ของ connect() โดยไม่ตั้งใจ) ปุ่มนี้ต้องไม่มี greetFirst เสมอ
+          onConnect={() => voice.connect()}
           onDisconnect={voice.disconnect}
         />
       )}
@@ -190,6 +223,20 @@ export function App() {
           <div>offTopic: {String(voice.offTopic)}</div>
         </div>
       )}
+      {isWakeWordManualTest && mode === "live-voice" && (
+        <div
+          style={{
+            position: "fixed", bottom: 12, left: 12, background: "rgba(0,0,0,0.75)", color: "#fff",
+            fontFamily: "monospace", fontSize: 13, padding: "10px 14px", borderRadius: 8, zIndex: 999,
+          }}
+        >
+          <div>wake-word diagnostic (test only)</div>
+          <div>listener: {wakeWordStatus}</div>
+          <div>confidence: {(wakeWordDiagnostic?.confidence ?? 0).toFixed(3)} / threshold: 0.900</div>
+          <div>consecutive hits: {wakeWordDiagnostic?.hits ?? 0} / 3</div>
+        </div>
+      )}
+      {isWakeWordManualTest && <WakeWordRecorder onRecordingChange={setRecordingWakeSample} />}
     </div>
   );
 }

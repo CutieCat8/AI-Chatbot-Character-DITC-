@@ -31,7 +31,7 @@ const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร
 //
 // รอบแรก (ก่อนหน้านี้ในวันเดียวกัน) เคยใส่ margin แค่ตอน flush ก้อนแรกของเทิร์นเท่านั้น เพราะเดาว่า
 // สาเหตุคือลูป synchronous ตอนเทิร์นเริ่ม — **ผิด** ใส่ diagnostic logging จริงแล้วเก็บหลักฐานจาก
-// ผู้ใช้ทดสอบบน Mac (console `[click-noise-debug]`, 2026-09-08 บ่าย): **gap ทั้งหมด 11 ครั้งที่เจอ
+// ผู้ใช้ทดสอบบน Mac ด้วย diagnostic logging (2026-09-08 บ่าย): **gap ทั้งหมด 11 ครั้งที่เจอ
 // เป็น `origin=stream` ล้วนๆ ไม่มี `origin=flush` แม้แต่ครั้งเดียว** — แปลว่า mechanism จริงคือตอน
 // schedule ทีละก้อนที่มาจาก WS ระหว่างเทิร์น (chunk มาช้ากว่าจังหวะเล่นจริง) ไม่ใช่ลูป flush ตอนเริ่ม
 // เทิร์นตามที่ CLAUDE.md เดาไว้แต่แรก — ขนาด gap เล็กที่เจอจริง (ตัดกลุ่มใหญ่ที่เป็นความเงียบระหว่าง
@@ -90,7 +90,9 @@ interface UseVoiceSocketResult {
   amplitude: number;
   transcript: string;
   errorMessage: string | null;
-  connect: () => Promise<void>;
+  /** `greetFirst`: ให้แมวทักทายก่อนเองโดยไม่ต้องรอผู้ใช้พูด — ใช้เฉพาะตอนตื่นจาก wake-word เท่านั้น
+   * (ปุ่ม "เริ่มคุย" ไม่ส่ง flag นี้ ยังคงพฤติกรรมเดิมทุกประการ) */
+  connect: (options?: { greetFirst?: boolean }) => Promise<void>;
   disconnect: () => void;
   /**
    * ค่าดิบของ local RMS VAD ต่อเฟรม — มีค่าจริงเฉพาะตอนเปิด `{ debug: true }` เท่านั้น (ปิดไว้เป็น
@@ -171,7 +173,8 @@ export function isScheduledAudioPlaying(scheduled: ScheduledAudio[], now: number
 export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketResult {
   const debugEnabled = opts.debug ?? false;
   const [connectionState, setConnectionState] = useState<VoiceConnectionState>("idle");
-  const [catState, setCatState] = useState<CatState>("idle");
+  // A public kiosk waits in the sleeping state until the visitor invokes it.
+  const [catState, setCatState] = useState<CatState>("sleep");
   const [botSpeaking, setBotSpeaking] = useState(false);
   const [debugVad, setDebugVad] = useState<UseVoiceSocketResult["debugVad"]>(null);
   const [isThinking, setIsThinking] = useState(false);
@@ -194,7 +197,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const playbackStartedRef = useRef(false);
   const rafIdRef = useRef<number | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const catStateRef = useRef<CatState>("idle"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
+  const catStateRef = useRef<CatState>("sleep"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
   const wasSpeechRef = useRef(false); // เดิม/จบพูดรอบล่าสุด — ใช้ส่ง speech_start/speech_end ให้ backend
   const silentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนส่ง speech_end จริง
   const listeningSilentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนสลับ UI เป็น thinking (แยกจาก silentStreakRef ข้างบน — คนละ hangover คนละจุดประสงค์ ดู LISTENING_HANGOVER_MS)
@@ -248,7 +251,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     void audioCtxRef.current?.close();
     audioCtxRef.current = null;
     setConnectionState("closed");
-    setCatStateSafe("idle");
+    setCatStateSafe("sleep");
     setAmplitude(0);
     setBotSpeaking(false);
     setIsThinking(false);
@@ -256,7 +259,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setDebugVad(null);
   }, [setCatStateSafe]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (options?: { greetFirst?: boolean }) => {
     setErrorMessage(null);
     setConnectionState("connecting");
     setTranscript("");
@@ -481,8 +484,14 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
 
     ws.onopen = () => {
       setConnectionState("connected");
-      setCatStateSafe("idle");
+      setCatStateSafe("sleep");
       resetIdleTimer();
+      // เฉพาะทาง wake-word (App.tsx: useWakeWord's onDetected) — ผู้ใช้เพิ่งเรียกด้วยเสียงแล้วไม่มี
+      // ปุ่มให้กดยืนยันอีกที ต่างจากปุ่ม "เริ่มคุย" ที่ผู้ใช้ตั้งใจกดเพื่อเริ่มพูดเองอยู่แล้ว จึงยังคง
+      // รอผู้ใช้พูดก่อนตามปกติ (ไม่ทักทายเอง) — ดู docs/superpowers/specs/2026-09-08-wake-word-design.md
+      if (options?.greetFirst) {
+        ws.send(JSON.stringify({ type: "greet_first" }));
+      }
     };
     ws.onmessage = (event) => {
       if (typeof event.data === "string") {
@@ -523,7 +532,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       // ถ้ามี timer ค้างจากก่อนหน้า (ตั้งไว้จาก resetIdleTimer() รอบล่าสุดตอนยังเชื่อมต่ออยู่) มันจะ
       // ยิง setCatStateSafe("sleep") ทับ idle ที่เพิ่ง set ไปหลังจากนี้อีกที (เจอจริงตอนทดสอบ)
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      setCatStateSafe("idle");
+      setCatStateSafe("sleep");
       setBotSpeaking(false);
       setIsThinking(false);
       setOffTopic(false);

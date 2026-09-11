@@ -22,6 +22,7 @@ backend/app/scripts/_spike_audio/
 backend/app/scripts/_voice_cache/
 backend/app/scripts/real_voice_samples/
 backend/*_result*.txt
+backend/_debug_audio/
 
 # ---- Node / Frontend ----
 node_modules/
