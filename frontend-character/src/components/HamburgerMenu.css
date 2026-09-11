@@ -29,13 +29,27 @@
   outline-offset: 2px;
 }
 
+/* ตอนลิ้นชักเปิด ปุ่มนี้ลอยทับอยู่บนลิ้นชักพื้นขาว (ไม่ใช่หน้าแมวพื้นเข้มเหมือนตอนปิด) — สลับเป็นพื้น
+   เข้ม + เส้นดำ ไม่งั้นพื้นขาวโปร่งแสง+เส้นขาวเดิมจะจมหายไปกับพื้นขาวเลย มองไม่เห็นปุ่ม X (2026-09-11) */
+.hamburger-button--open {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.hamburger-button--open:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.hamburger-button--open .hamburger-line {
+  background: #1a1a1a;
+}
+
 .hamburger-line {
   display: block;
   width: 22px;
   height: 2px;
   background: white;
   border-radius: 2px;
-  transition: transform 180ms ease, opacity 180ms ease;
+  transition: transform 180ms ease, opacity 180ms ease, background 150ms ease;
 }
 
 .hamburger-line--top-open {

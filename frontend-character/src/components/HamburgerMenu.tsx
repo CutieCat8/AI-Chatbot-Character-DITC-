@@ -23,9 +23,13 @@ export function HamburgerMenu({ children }: Props) {
 
   return (
     <>
+      {/* ปุ่มนี้ลอยอยู่ fixed มุมขวาบนตลอด ไม่ว่าลิ้นชักจะเปิดหรือปิด — ตอนปิดมันลอยอยู่บนหน้าแมว
+          (พื้นเข้ม) แต่ตอนเปิดลิ้นชักจริงๆ มันลอยทับอยู่บนลิ้นชักสีขาว (2026-09-11 — ตั้งแต่เปลี่ยน
+          ลิ้นชักเป็นพื้นขาว) สีเดิม (พื้นขาวโปร่งแสง + เส้นขาว) เลยจมหายไปกับพื้นขาว มองไม่เห็นปุ่ม X
+          เลย ต้องสลับสีเป็นเข้มตอน open=true ด้วย className `hamburger-button--open` */}
       <button
         type="button"
-        className="hamburger-button"
+        className={`hamburger-button ${open ? "hamburger-button--open" : ""}`}
         aria-label={open ? "ปิดเมนู" : "เปิดเมนู"}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
