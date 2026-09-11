@@ -30,8 +30,12 @@
 }
 
 /* ตอนลิ้นชักเปิด ปุ่มนี้ลอยทับอยู่บนลิ้นชักพื้นขาว (ไม่ใช่หน้าแมวพื้นเข้มเหมือนตอนปิด) — สลับเป็นพื้น
-   เข้ม + เส้นดำ ไม่งั้นพื้นขาวโปร่งแสง+เส้นขาวเดิมจะจมหายไปกับพื้นขาวเลย มองไม่เห็นปุ่ม X (2026-09-11) */
+   เข้ม + เส้นดำ ไม่งั้นพื้นขาวโปร่งแสง+เส้นขาวเดิมจะจมหายไปกับพื้นขาวเลย มองไม่เห็นปุ่ม X (2026-09-11)
+   ขยับลงมา-ซ้ายนิดหน่อย (top/right เพิ่มจาก 16px เป็น 28px) ไม่ให้ไปชนมุมโค้งบนขวาของลิ้นชักพอดี
+   เป๊ะ (ผู้ใช้ทักว่าติดขอบกล่อง) — กล่องลิ้นชักเองไม่ได้ขยับ ยังอยู่ top:16/right:16 เหมือนเดิม */
 .hamburger-button--open {
+  top: 28px;
+  right: 28px;
   background: rgba(0, 0, 0, 0.06);
 }
 
@@ -64,32 +68,43 @@
   transform: translateY(-7px) rotate(-45deg);
 }
 
+/* เบลอฉากหลัง (2026-09-11 — ทำตามภาพตัวอย่างที่ผู้ใช้ส่งมา) แทนที่จะแค่หรี่มืด backdrop-filter
+   ต้อง prefix -webkit ด้วยเพราะ Safari/บาง Chromium build ยังต้องการ */
 .hamburger-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   z-index: 998;
 }
 
-/* ความโค้งมนตามธรรมเนียม shadcn/ui Drawer (vaul) ฝั่ง direction="right": โค้งเฉพาะมุมที่ไม่ติดขอบจอ
-   (ซ้ายบน/ซ้ายล่าง) ส่วนขอบขวาแนบสุดจอเป๊ะเลยไม่โค้ง — ให้ความรู้สึกเป็นแผ่นลอยมาจากขอบจอจริง ๆ */
+/* ลิ้นชักลอยเป็นการ์ดแยกจากขอบจอ (2026-09-11 — ตามภาพตัวอย่าง ไม่ใช่แผ่นแนบขอบจอแบบเดิม) เว้น
+   ระยะเท่ากันทั้ง 3 ด้านที่ไม่ติดขอบจอจริง (บน/ล่าง/ขวา — margin 16px) โค้งมนทั้ง 4 มุมเพราะไม่มีด้าน
+   ไหนติดขอบจอแล้ว (ต่างจากก่อนหน้านี้ที่โค้งแค่ฝั่งซ้ายตามธรรมเนียม shadcn/ui Drawer แนบขอบขวา) */
 .hamburger-drawer {
   position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  height: auto;
   width: min(380px, 90vw);
-  background: #fff; /* พื้นขาวตามสีจริงของ component ต้นฉบับ (2026-09-11) */
+  background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-right: none;
-  border-radius: 16px 0 0 16px;
+  border-radius: 16px;
   overflow: hidden;
   z-index: 999;
   display: flex;
   flex-direction: column;
-  transform: translateX(100%);
+  transform: translateX(calc(100% + 32px));
   transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
-  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.25);
+  /* เงาลอยด้านนอก (เดิม) + เส้น bevel ด้านใน 2 เส้น (ใหม่ — ไม่ใช่เงาเพิ่ม) จำลองแสงกระทบขอบบน
+     (highlight สีขาวบางๆ) กับเงาบางๆ ขอบล่าง ให้ตัวกล่องเองดูมีความหนา/นูนขึ้นมาจริงๆ ไม่ใช่แค่แผ่น
+     แบนๆ ที่มีเงาลอยอยู่ข้างใต้เฉยๆ */
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.05);
   font-family: "Inter", "IBM Plex Sans Thai", "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -97,10 +112,13 @@
   transform: translateX(0);
 }
 
-/* padding-top 72px เว้นที่ให้ปุ่ม hamburger (fixed top:16/right:16, z-index สูงกว่า) ไม่ทับหัวข้อ */
+/* padding-top เผื่อที่ให้ปุ่ม hamburger ตอนเปิด (viewport y 28-72px) ไม่ทับหัวข้อ — คำนวณจากกรอบ
+   ของลิ้นชักเอง (เริ่มที่ top:16px) ไม่ใช่กรอบ viewport ตรงๆ: 16 + padding-top ต้อง >= 72 (ขอบล่าง
+   ปุ่ม) ค่าต่ำสุดจริงๆ คือ 56px — ใส่ 60px เผื่อช่องว่างเล็กน้อย (2026-09-11 — รอบก่อนคิดเผื่อเกินจริง
+   เป็น 84px ทำให้ดูมีที่ว่างด้านบนเยอะเกินไปตามที่ผู้ใช้ทัก) */
 .hamburger-drawer__header {
   flex: none;
-  padding: 72px 20px 20px;
+  padding: 60px 20px 20px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
