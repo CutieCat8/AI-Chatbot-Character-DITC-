@@ -1,0 +1,31 @@
+.clipped-circle-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* ห้ามใส่ z-index ตรงนี้ (แม้แต่ 0) — เจอบั๊กจริง 2026-09-11: position:absolute + z-index ที่ไม่ใช่
+     auto (ต่อให้เป็น 0) จะสร้าง stacking context ใหม่ ทำให้ mix-blend-mode ของ .clipped-circle
+     ข้างในไป blend กับพื้นหลังของ stacking context ใหม่นี้ (ซึ่งโปร่งใส แทบไม่มีอะไรให้ diff) แทนที่จะ
+     blend กับพื้นหลังจริงของปุ่ม/ลิ้นชักด้านหลัง (เหมือนบั๊ก isolation:isolate ที่เจอมาก่อนหน้านี้
+     เป๊ะ แค่คราวนี้เกิดขึ้นเองโดยไม่ได้ตั้งใจ) ไม่ใส่ z-index เลยก็เพียงพอแล้ว: .clipped-circle-layer
+     เป็น z-index:auto วาดตามลำดับ DOM ปกติ ส่วน .mode-tab__label มี z-index:1 ชัดเจนอยู่แล้ว
+     (App.css) พอเทียบกับ auto ตัวที่มี z-index จริงจะวาดทับอยู่บนเสมอ ไม่ต้องพึ่ง z-index ตรงนี้ */
+}
+
+.clipped-circle {
+  position: absolute;
+  border-radius: 50%;
+  /* สีพื้นวงกลมจริงมาจาก inline style (prop `color` ใน ClippedCircle.tsx) เสมอ — #fff ตรงนี้เป็นแค่
+     fallback เฉยๆ ทึบเต็ม (ไม่ใช่โปร่งแสง) ตามที่ demo จริงของ unlumen-ui ใช้ (circleClassName="bg-white"
+     ไม่ใช่ default prop "bg-white/20") ให้ผล difference blend ชัดเจน: บนพื้นขาวจะออกดำ บนพื้นเข้มจะออก
+     สีของวงกลมเอง (ขาว/เทา ปรับได้ผ่าน prop `color` — ดูปุ่ม mode-tab ที่เลือกอยู่ใน App.tsx) */
+  background: #fff;
+  mix-blend-mode: difference;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 500ms cubic-bezier(0.19, 1, 0.22, 1);
+  pointer-events: none;
+}
+
+.clipped-circle--visible {
+  transform: translate(-50%, -50%) scale(1);
+}

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import CatFace, { type CatFaceState, useBlink, useGazeLoop } from "./components/character/CatFace";
 import { FigmaPreviewControls, useFigmaPreviewControls } from "./components/character/CharacterPage";
+import { ClippedCircle } from "./components/ClippedCircle";
 import { ControlPanel } from "./components/ControlPanel";
 import { HamburgerMenu } from "./components/HamburgerMenu";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
@@ -129,23 +130,30 @@ export function App() {
 
       <HamburgerMenu>
         <div className="mode-tabs">
+          {/* สี ClippedCircle ต่างกันตาม active/inactive (2026-09-11 — ผู้ใช้ทักว่าปุ่มที่เลือกอยู่
+              (พื้นดำ) เจอ hover แล้วขาวจ้าเกินไป): ปุ่มที่ยังไม่ถูกเลือก (พื้นขาว) ใช้สีขาว diff(ขาว,
+              ขาว)=ดำ ตามที่ต้องการ ส่วนปุ่มที่เลือกอยู่ (พื้นดำ #1a1a1a) เปลี่ยนวงกลมเป็นสีเทาแทนขาว
+              diff(ดำ, เทา)=เทา แทนที่จะจ้าขาวเหมือนเดิม */}
           <button
             className={`mode-tab ${mode === "live-voice" ? "mode-tab--active" : ""}`}
             onClick={() => setMode("live-voice")}
           >
-            คุยด้วยเสียงจริง
+            <span className="mode-tab__label">Voice Chat</span>
+            <ClippedCircle size={130} color={mode === "live-voice" ? "#8a8a8a" : "#fff"} />
           </button>
           <button
             className={`mode-tab ${mode === "file-test" ? "mode-tab--active" : ""}`}
             onClick={() => setMode("file-test")}
           >
-            ทดสอบด้วยไฟล์เสียง
+            <span className="mode-tab__label">File Test</span>
+            <ClippedCircle size={130} color={mode === "file-test" ? "#8a8a8a" : "#fff"} />
           </button>
           <button
             className={`mode-tab ${mode === "figma-preview" ? "mode-tab--active" : ""}`}
             onClick={() => setMode("figma-preview")}
           >
-            หน้าใหม่จาก Figma (พรีวิว)
+            <span className="mode-tab__label">Preview</span>
+            <ClippedCircle size={130} color={mode === "figma-preview" ? "#8a8a8a" : "#fff"} />
           </button>
         </div>
 

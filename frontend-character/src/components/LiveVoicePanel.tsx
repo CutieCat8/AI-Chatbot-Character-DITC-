@@ -12,7 +12,7 @@ interface Props {
 const STATUS_LABEL: Record<VoiceConnectionState, string> = {
   idle: "ยังไม่เริ่ม",
   connecting: "กำลังเชื่อมต่อ...",
-  connected: "🎙️ กำลังฟัง — พูดได้เลย",
+  connected: "กำลังฟัง — พูดได้เลย",
   error: "เชื่อมต่อไม่สำเร็จ",
   closed: "ปิดการเชื่อมต่อแล้ว",
 };
@@ -26,14 +26,11 @@ export function LiveVoicePanel({ connectionState, transcript, errorMessage, onCo
 
   return (
     <div className="live-voice-panel">
-      <h2>คุยด้วยเสียงจริง (Gemini Live)</h2>
-      <p className="live-voice-hint">ต้องรัน backend ก่อน: `docker compose up` แล้วกดปุ่มด้านล่าง (เบราว์เซอร์จะขอสิทธิ์ไมค์)</p>
-
       <button className="live-voice-button" onClick={isConnected ? onDisconnect : onConnect}>
-        {isConnected ? "⏹ หยุดคุย" : "🎤 เริ่มคุย"}
+        {isConnected ? "⏹ หยุดคุย" : "เริ่มคุย"}
       </button>
 
-      <p className="live-voice-status">สถานะ: {STATUS_LABEL[connectionState]}</p>
+      <p className="live-voice-status">{STATUS_LABEL[connectionState]}</p>
       {errorMessage && <p className="live-voice-error">{errorMessage}</p>}
 
       {transcript && (

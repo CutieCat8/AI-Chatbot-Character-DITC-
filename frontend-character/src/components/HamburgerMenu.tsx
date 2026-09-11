@@ -40,9 +40,6 @@ export function HamburgerMenu({ children }: Props) {
       <aside className={`hamburger-drawer ${open ? "hamburger-drawer--open" : ""}`} aria-hidden={!open}>
         <header className="hamburger-drawer__header">
           <h2 className="hamburger-drawer__title">เมนูทดสอบ</h2>
-          <p className="hamburger-drawer__description">
-            สลับโหมดและเปิดแผงควบคุมสำหรับทีมพัฒนา/เดโม — จอจริงไม่มีเมนูนี้ให้เห็น
-          </p>
         </header>
 
         <div className="hamburger-drawer__content">{children}</div>

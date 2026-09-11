@@ -29,30 +29,59 @@ body {
 
 /* เมนูทดสอบ/debug ทั้งหมด (สลับโหมด + แผงควบคุมของแต่ละโหมด) อยู่ใน HamburgerMenu.tsx แล้ว —
    คลาสพวกนี้ยังใช้จัดปุ่มสลับโหมดข้างในลิ้นชักเหมือนเดิม แค่ไม่ได้วางเรียงข้างหน้าแมวอีกต่อไป */
+/* แนวนอน 3 ช่องเท่ากันแบบปุ่ม Docs/Install/Components ในภาพตัวอย่างที่ผู้ใช้ส่งมา (2026-09-11)
+   — ใช้ grid แทน flex-wrap เพื่อบังคับ 3 คอลัมน์เท่ากันเป๊ะเสมอ ไม่มีปัญหาอันที่ 3 ตกไปแถวเดียวแบบ
+   ตอน label ยังเป็นข้อความไทยยาว ๆ (ตอนนี้ label สั้นลงเป็นอังกฤษแล้วด้วย ดู App.tsx)
+   สีพื้นหลังขาว + กล่อง active สีเทาดำ ตามสีจริงของ component ต้นฉบับ (ปุ่ม "Docs" ในภาพตัวอย่าง
+   เป็นพื้นขาว ปุ่มที่เลือกอยู่ทึบสีเข้ม) แยกจากธีมมืดของลิ้นชักโดยรอบตั้งใจ — เป็นกล่องขาวลอยอยู่ */
 .mode-tabs {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 4px;
-  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  border-radius: 12px;
 }
 
 .mode-tab {
-  min-height: 44px;
-  padding: 8px 16px;
+  position: relative; /* ให้ ClippedCircle (absolute inset-0) อ้างอิงปุ่มนี้เป็น parent */
+  overflow: hidden; /* คลิปวงกลมให้โค้งมนตามขอบปุ่ม (border-radius ด้านล่าง) */
+  /* สาเหตุจริงที่ mix-blend-mode เคยพังคือ .clipped-circle-layer มี z-index:0 (สร้าง stacking
+     context ใหม่ทับ blend ให้ไปมองพื้นหลังของ stacking context นั้นเองแทนพื้นหลังจริง) แก้ที่ต้นตอ
+     แล้วในไฟล์ ClippedCircle.css ไม่ใช่ overflow:hidden ตรงนี้ (เดิมเข้าใจผิดว่า overflow:hidden
+     ร่วมกับ border-radius คือตัวการ เลยถอดออกไปก่อน — พอแก้ต้นตอถูกจุดแล้ว ใส่กลับมาได้ตามปกติ ไม่พัง)
+     ห้ามใส่ isolation:isolate ตรงนี้ — เคยลองแล้วทำให้วงกลม blend กับพื้นหลังปุ่มเองแทนพื้นหลังลิ้นชัก
+     จริงด้านหลัง เอฟเฟกต์จางจนไม่เห็น */
+  min-height: 40px;
+  padding: 8px 10px;
   border-radius: 8px;
-  border: none;
+  border: 1px solid rgba(0, 0, 0, 0.08);
   background: transparent;
-  color: #aaa;
+  color: #555;
   font-size: 13px;
+  font-weight: 500;
+  text-align: center;
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
+/* ตั้งใจเลือกด้วย class เจาะจง (.mode-tab__label) แทน `.mode-tab > *` แบบเดิม — `.mode-tab > *`
+   ดันมี specificity เท่ากับ `.clipped-circle-layer` (ทั้งคู่ 1 class selector) พอเจอ tie ตัวที่โหลด
+   ทีหลังใน bundle ชนะ (App.css import ทีหลัง ClippedCircle.css ใน App.tsx) เลยทับ position:absolute
+   ของ ClippedCircle เป็น position:relative ไปดื้อๆ ทำให้วงกลม collapse เหลือ height:0 มองไม่เห็นเลย
+   (เจอบั๊กจริงตอนไล่ดีบัก 2026-09-11) เลือกเจาะจงแบบนี้ตัดปัญหาเรื่อง cascade order ไปเลย */
+.mode-tab__label {
+  position: relative;
+  z-index: 1; /* ตัวหนังสือปุ่มอยู่เหนือ ClippedCircle เสมอ ไม่โดน mix-blend-mode กระทบ */
+}
+
+/* hover ของปุ่มที่ยังไม่เลือก = พื้นขาวเดิม + เอฟเฟกต์วงดำจาก ClippedCircle ล้วนๆ (2026-09-11 —
+   สลับกลับจากรอบก่อนที่ให้ทั้งกล่องดำทึบ) พื้นหลังคงเป็นขาวไว้ (ไม่ตั้ง background เอง ปล่อยโปร่งใส
+   ให้เห็นพื้นขาวของ .mode-tabs ทะลุ) เปลี่ยนแค่สีตัวหนังสือเป็นขาว เพราะตอนวงดำ (ClippedCircle สี
+   ดำ diff(ขาว,ขาว)=ดำ) กวาดผ่าน ตัวหนังสือดำเดิมจะจมหายไปกับพื้นดำ ต้องสลับเป็นขาวให้ยังอ่านออก */
 .mode-tab:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #ddd;
+  background: transparent;
+  color: #fff;
 }
 
 .mode-tab:focus-visible {
@@ -61,10 +90,11 @@ body {
 }
 
 .mode-tab--active {
-  background: #4a90d9;
+  background: #1a1a1a;
+  border-color: #1a1a1a;
   color: white;
 }
 
 .mode-tab--active:hover {
-  background: #4a90d9;
+  background: #1a1a1a;
 }
