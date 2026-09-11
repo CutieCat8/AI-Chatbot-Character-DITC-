@@ -34,9 +34,11 @@ body {
    ตอน label ยังเป็นข้อความไทยยาว ๆ (ตอนนี้ label สั้นลงเป็นอังกฤษแล้วด้วย ดู App.tsx)
    สีพื้นหลังขาว + กล่อง active สีเทาดำ ตามสีจริงของ component ต้นฉบับ (ปุ่ม "Docs" ในภาพตัวอย่าง
    เป็นพื้นขาว ปุ่มที่เลือกอยู่ทึบสีเข้ม) แยกจากธีมมืดของลิ้นชักโดยรอบตั้งใจ — เป็นกล่องขาวลอยอยู่ */
+/* เหลือ 2 แท็บแล้ว (File Test ถูกลบทิ้ง 2026-09-11 — เป็นแค่เครื่องมือทดสอบ lip-flap ยุคแรกๆ ไม่เคย
+   เชื่อมกับ backend/AI จริงเลย ไม่มีประโยชน์แล้ว) */
 .mode-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   background: #fff;
   padding: 8px;

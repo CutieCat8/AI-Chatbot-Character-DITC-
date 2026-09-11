@@ -1,16 +1,14 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import CatFace, { type CatFaceState, useBlink, useGazeLoop } from "./components/character/CatFace";
 import { FigmaPreviewControls, useFigmaPreviewControls } from "./components/character/CharacterPage";
 import { ClippedCircle } from "./components/ClippedCircle";
-import { ControlPanel } from "./components/ControlPanel";
 import { HamburgerMenu } from "./components/HamburgerMenu";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
-import { useAmplitude } from "./hooks/useAmplitude";
 import { LOCAL_VAD_RMS_THRESHOLD, useVoiceSocket } from "./hooks/useVoiceSocket";
 import type { CatState } from "./types";
 import "./App.css";
 
-type Mode = "file-test" | "live-voice" | "figma-preview";
+type Mode = "live-voice" | "figma-preview";
 
 /**
  * แปลง CatState เดิม (4 ค่าตามสโคป TOR จริง: Idle/Transition/Sleep/Wake) เป็น CatFaceState ใหม่
@@ -51,39 +49,6 @@ const isDebug = new URLSearchParams(window.location.search).get("debug") === "1"
 export function App() {
   const [mode, setMode] = useState<Mode>("live-voice");
 
-  // ---- โหมดทดสอบด้วยไฟล์เสียง (เดิม) ----
-  const [fileTestState, setFileTestState] = useState<CatState>("idle");
-  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [hasAudio, setHasAudio] = useState(false);
-  const objectUrlRef = useRef<string | null>(null);
-  const { amplitude: fileAmplitude, resume } = useAmplitude(audioEl);
-
-  const handleFileSelected = (file: File) => {
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    const url = URL.createObjectURL(file);
-    objectUrlRef.current = url;
-    if (audioEl) {
-      audioEl.src = url;
-      setHasAudio(true);
-    }
-  };
-  const handlePlay = () => {
-    resume();
-    audioEl?.play();
-    setIsPlaying(true);
-    setFileTestState("wake");
-  };
-  const handlePause = () => {
-    audioEl?.pause();
-    setIsPlaying(false);
-  };
-  const handleAudioEnded = () => {
-    setIsPlaying(false);
-    setFileTestState("transition");
-    setTimeout(() => setFileTestState("idle"), 400);
-  };
-
   // ---- โหมดคุยด้วยเสียงจริง (Gemini Live ผ่าน backend WS) ----
   const voice = useVoiceSocket({ debug: isDebug });
 
@@ -91,20 +56,12 @@ export function App() {
   // เพื่อขับ stage เต็มจอตัวเดียวกันกับโหมดอื่น ดู CharacterPage.tsx) ----
   const figma = useFigmaPreviewControls();
 
-  const displayState = mode === "live-voice" ? voice.catState : fileTestState;
-  const displayAmplitude = mode === "live-voice" ? voice.amplitude : isPlaying ? fileAmplitude : 0;
-  // file-test ไม่มีไมค์ผู้ใช้จริง เสียงที่เล่นคือเสียงแมวเสมอ ("wake" ในโหมดนี้ = กำลังเล่นไฟล์เสียง)
-  // และไม่มีแนวคิด "รอ Gemini ตอบ" เลย (ไม่ได้ยิง retrieval จริง) เลย isThinking เป็น false เสมอ
-  const displayBotSpeaking = mode === "live-voice" ? voice.botSpeaking : isPlaying;
-  const displayIsThinking = mode === "live-voice" ? voice.isThinking : false;
-  const displayOffTopic = mode === "live-voice" ? voice.offTopic : false;
-
   // เดิม App.tsx ไม่เคยส่ง gaze/blink ให้ CatFace เลย (ตาค้างนิ่งตลอด) — ใช้ logic เดียวกับที่
   // CharacterPage.tsx (หน้าพรีวิว) ใช้: กระพริบตลอดยกเว้นตอนหลับ (ถี่ขึ้นตอน thinking ให้ดูต่างจาก
   // listening ชัดเจน — หูก็หยุดสลับกลับเป็นท่าปกติตอน thinking ด้วย ดู CatFace.tsx)
-  // ใช้ได้เฉพาะโหมด live-voice/file-test — โหมด figma-preview มี state/blink/gaze ของตัวเองจาก
+  // ใช้ได้เฉพาะโหมด live-voice — โหมด figma-preview มี state/blink/gaze ของตัวเองจาก
   // useFigmaPreviewControls() (มี toggle "auto" แยกต่างหาก เก็บพฤติกรรมเดิมของหน้าพรีวิวไว้ครบ)
-  const liveFaceState = toCatFaceState(displayState, displayBotSpeaking, displayIsThinking, displayOffTopic);
+  const liveFaceState = toCatFaceState(voice.catState, voice.botSpeaking, voice.isThinking, voice.offTopic);
   const liveBlink = useBlink({ enabled: liveFaceState !== "sleeping", rate: liveFaceState === "thinking" ? 0.45 : 1 });
   // ตากลอกย้ายมาไว้ตอน "idle" แทน "listening" (ทดสอบเสียงจริง 2026-09-08) — คนตั้งใจฟังจะจ้องนิ่ง
   // ไม่กรอกตา ส่วนตอน idle (ยังไม่มีใครคุยด้วย) กรอกตาไปมาสื่อว่ากำลังมองรอบ ๆ รอคนมาคุย — หมายเหตุ:
@@ -114,14 +71,12 @@ export function App() {
   const liveGaze = useGazeLoop({ enabled: liveFaceState === "idle" });
 
   const faceState = mode === "figma-preview" ? figma.state : liveFaceState;
-  const activeAmplitude = mode === "figma-preview" ? 0 : displayAmplitude;
+  const activeAmplitude = mode === "figma-preview" ? 0 : voice.amplitude;
   const activeBlink = mode === "figma-preview" ? figma.blink : liveBlink;
   const activeGaze = mode === "figma-preview" ? figma.gaze : liveGaze;
 
   return (
     <div className="app">
-      <audio ref={(el) => setAudioEl(el)} onEnded={handleAudioEnded} style={{ display: "none" }} />
-
       {/* จอจริงต้องเป็นหน้าแมวเต็มจอเสมอ (2026-09-10 — ดู CLAUDE.md) เต็มทุกโหมด ไม่ใช่แค่ live-voice
           ปุ่ม/แผงควบคุมทั้งหมดที่เคยเรียงข้าง ๆ ย้ายไปอยู่ใน HamburgerMenu มุมขวาบนแทน */}
       <div className="app-stage">
@@ -142,13 +97,6 @@ export function App() {
             <ClippedCircle size={130} color={mode === "live-voice" ? "#8a8a8a" : "#fff"} />
           </button>
           <button
-            className={`mode-tab ${mode === "file-test" ? "mode-tab--active" : ""}`}
-            onClick={() => setMode("file-test")}
-          >
-            <span className="mode-tab__label">File Test</span>
-            <ClippedCircle size={130} color={mode === "file-test" ? "#8a8a8a" : "#fff"} />
-          </button>
-          <button
             className={`mode-tab ${mode === "figma-preview" ? "mode-tab--active" : ""}`}
             onClick={() => setMode("figma-preview")}
           >
@@ -164,18 +112,6 @@ export function App() {
             errorMessage={voice.errorMessage}
             onConnect={voice.connect}
             onDisconnect={voice.disconnect}
-          />
-        )}
-        {mode === "file-test" && (
-          <ControlPanel
-            state={fileTestState}
-            onStateChange={setFileTestState}
-            onFileSelected={handleFileSelected}
-            onPlay={handlePlay}
-            onPause={handlePause}
-            isPlaying={isPlaying}
-            hasAudio={hasAudio}
-            amplitude={fileAmplitude}
           />
         )}
         {mode === "figma-preview" && <FigmaPreviewControls {...figma} />}

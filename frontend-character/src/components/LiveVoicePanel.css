@@ -1,4 +1,4 @@
-/* เงาเดียวกับ .control-panel (ControlPanel.css) ให้การ์ดทั้ง 2 หน้าดูมีมิติสม่ำเสมอกัน */
+/* เงาเดียวกับ .figma-preview-panel (CharacterPage.css) ให้การ์ดทุกหน้าดูมีมิติสม่ำเสมอกัน */
 .live-voice-panel {
   background: #ffffff;
   border-radius: 12px;

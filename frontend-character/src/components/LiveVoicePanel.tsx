@@ -19,7 +19,7 @@ const STATUS_LABEL: Record<VoiceConnectionState, string> = {
 
 /**
  * โหมดคุยด้วยเสียงจริงผ่าน Gemini Live (ต้องมี backend รันอยู่ที่ localhost:8000 — docker compose up)
- * ต่างจาก ControlPanel (ทดสอบด้วยไฟล์เสียง) ตรงที่ตัวนี้ครบวงจริง: ไมค์ -> WS -> Gemini Live -> เสียงตอบ
+ * ครบวงจริง: ไมค์ -> WS -> Gemini Live -> เสียงตอบ
  */
 export function LiveVoicePanel({ connectionState, transcript, errorMessage, onConnect, onDisconnect }: Props) {
   const isConnected = connectionState === "connected" || connectionState === "connecting";
