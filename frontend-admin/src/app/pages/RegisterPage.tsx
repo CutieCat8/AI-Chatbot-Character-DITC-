@@ -34,16 +34,16 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-gray-950 px-4 py-10 overflow-hidden">
+    <div className="relative min-h-screen flex items-center justify-center bg-[#07080f] px-4 py-10 overflow-hidden">
       <div className="absolute inset-0">
-        <Aurora colorStops={["#8167ff", "#B497CF", "#261c4f"]} blend={0.5} amplitude={1.0} speed={0.5} />
+        <Aurora colorStops={["#9797ff", "#6662c5", "#171043"]} blend={0.5} amplitude={1.0} speed={0.5} />
       </div>
 
-      <div className="relative z-10 w-full max-w-4xl min-h-[640px] bg-gradient-to-b from-[#17181c] to-[#0c0d0f] border border-white/10 rounded-2xl overflow-hidden grid md:grid-cols-2 shadow-[0_30px_80px_-20px_rgba(129,103,255,0.35),0_50px_120px_-30px_rgba(0,0,0,0.7)]">
+      <div className="relative z-10 w-full max-w-4xl min-h-[640px] bg-gradient-to-b from-[#1b1b30] to-[#0c0d1a] border border-white/10 rounded-2xl overflow-hidden grid md:grid-cols-2 shadow-[0_30px_80px_-20px_rgba(102,98,197,0.35),0_50px_120px_-30px_rgba(0,0,0,0.7)]">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent z-20" />
 
         {/* Left: sign-up form */}
-        <div className="flex flex-col justify-between p-10 md:p-14 bg-[#161719]">
+        <div className="flex flex-col justify-between p-10 md:p-14 bg-[#151525]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-md bg-white flex items-center justify-center">

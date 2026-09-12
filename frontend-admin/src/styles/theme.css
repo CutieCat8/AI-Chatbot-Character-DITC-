@@ -1,84 +1,111 @@
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+   DITC brand — สีหลักตาม brand guide ของศูนย์: CMYK 100/100/30/50
+   = #160F42 = oklch(0.2173 0.0915 281.86)  (hue 281.86 คือแกนของธีมทั้งหมด)
+   โทนทุกตัวข้างล่างปั่นจาก hue เดียวกันนี้ เพื่อให้ทั้งเว็บอยู่ในตระกูลสีเดียว
+   แก้สีที่ token ชั้นนี้ชั้นเดียวพอ — อย่าฮาร์ดโค้ด hex ในคอมโพเนนต์
+   ============================================================ */
+
 :root {
   --font-size: 16px;
+
+  /* brand ดิบ — ใช้ตอนต้องอ้างสีแบรนด์ตรง ๆ (โลโก้, badge, gradient) */
+  --brand: #160f42;
+  --brand-fg: #ffffff;
+  --brand-soft: #e4e6fc;
+  --brand-text: #4e46aa;
+
   --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
+  --foreground: #141423;
   --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
+  --card-foreground: #141423;
+  --popover: #ffffff;
+  --popover-foreground: #141423;
+  --primary: #160f42;
+  --primary-foreground: #ffffff;
+  --secondary: #edeffe;
+  --secondary-foreground: #160f42;
+  --muted: #f0f1f9;
+  --muted-foreground: #65677d;
+  --accent: #e4e6fc;
+  --accent-foreground: #160f42;
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+  --border: rgba(22, 15, 66, 0.12);
   --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
+  --input-background: #f4f4fc;
+  --switch-background: #c7c9de;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --ring: #6863d1;
+  --chart-1: #4e46aa;
+  --chart-2: #177bb7;
+  --chart-3: #b35c9f;
+  --chart-4: #009b91;
+  --chart-5: #b54c3a;
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: #f9faff;
+  --sidebar-foreground: #141423;
+  --sidebar-primary: #160f42;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ecedfb;
+  --sidebar-accent-foreground: #160f42;
+  --sidebar-border: #dfe0ef;
+  --sidebar-ring: #6863d1;
 }
 
+/* โหมดมืดไม่ใช่โหมดสว่างกลับหัว — พื้นเป็น navy เข้มอมแบรนด์ (ไม่ใช่เทากลาง)
+   และ primary ต้องพลิกเป็นโทนสว่างของ hue เดิม เพราะ #160f42 มืดเกินกว่าจะอ่านออกบนพื้นมืด */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --brand: #b4b8f4;
+  --brand-fg: #160f42;
+  --brand-soft: #2e2f4e;
+  --brand-text: #b4b8f4;
+
+  --background: #0c0d1a;
+  --foreground: #f5f6ff;
+  --card: #151525;
+  --card-foreground: #f5f6ff;
+  --popover: #151525;
+  --popover-foreground: #f5f6ff;
+  --primary: #b4b8f4;
+  --primary-foreground: #160f42;
+  --secondary: #282841;
+  --secondary-foreground: #f5f6ff;
+  --muted: #28293f;
+  --muted-foreground: #a0a2bb;
+  --accent: #2e2f4e;
+  --accent-foreground: #f5f6ff;
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  --border: #2f3047;
+  --input: #2a2b42;
+  --input-background: #1d1e32;
+  --switch-background: #3a3b57;
+  --ring: #7473d1;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --chart-1: #9899f7;
+  --chart-2: #6abaf4;
+  --chart-3: #ef9fda;
+  --chart-4: #70e1d6;
+  --chart-5: #e67c68;
+  --sidebar: #171729;
+  --sidebar-foreground: #f5f6ff;
+  --sidebar-primary: #b4b8f4;
+  --sidebar-primary-foreground: #160f42;
+  --sidebar-accent: #2a2b45;
+  --sidebar-accent-foreground: #f5f6ff;
+  --sidebar-border: #2f3047;
+  --sidebar-ring: #7473d1;
 }
 
 @theme inline {
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-text: var(--brand-text);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -117,6 +144,30 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ------------------------------------------------------------
+   รีแมปสเกลกลางของ Tailwind ให้เป็นโทนแบรนด์
+   เหตุผล: ทั่วโปรเจกต์ยังมี utility สีดิบ (bg-black, bg-gray-900, text-gray-400 ฯลฯ)
+   อยู่ ~240 จุดใน 19 ไฟล์ ซึ่งข้าม token ด้านบนไปเลย แทนที่จะไล่แก้ทีละไฟล์
+   เรายึดที่นิยามสีแทน — แก้ที่เดียวมีผลทั้งเว็บ และคลาสเดิมในโค้ดยังใช้ได้เหมือนเดิม
+   ค่า L ทุกขั้นเท่าของ Tailwind เป๊ะ เปลี่ยนแค่ hue -> 281.86 (+chroma เล็กน้อย)
+   คอนทราสต์จึงไม่ขยับ (เช็กแล้ว: gray-500 บนขาว 4.84 -> 4.87, gray-900 17.75 -> 18.07)
+   ------------------------------------------------------------ */
+@theme {
+  --color-black: #160f42;
+
+  --color-gray-50: #f9fafd;
+  --color-gray-100: #f3f4f9;
+  --color-gray-200: #e5e6f0;
+  --color-gray-300: #d2d3e3;
+  --color-gray-400: #9c9eb8;
+  --color-gray-500: #6d6f8e;
+  --color-gray-600: #4f5074;
+  --color-gray-700: #3b3c64;
+  --color-gray-800: #23224d;
+  --color-gray-900: #140e3e;
+  --color-gray-950: #060122;
 }
 
 @layer base {

@@ -25,39 +25,41 @@ export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartPr
           <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
             <defs>
               <linearGradient id="conversationTrendFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#111827" stopOpacity={0.18} />
-                <stop offset="100%" stopColor="#111827" stopOpacity={0} />
+                <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid vertical={false} stroke="#F3F4F6" />
+            <CartesianGrid vertical={false} stroke="var(--border)" />
             <XAxis
               dataKey="label"
-              tick={{ fontSize: 11, fill: "#9CA3AF" }}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               tickLine={false}
-              axisLine={{ stroke: "#F3F4F6" }}
+              axisLine={{ stroke: "var(--border)" }}
               interval="preserveStartEnd"
             />
             <YAxis
               allowDecimals={false}
-              tick={{ fontSize: 11, fill: "#9CA3AF" }}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               tickLine={false}
               axisLine={false}
               width={28}
             />
             <Tooltip
               formatter={(value: number) => [`${value.toLocaleString("th-TH")} บทสนทนา`, ""]}
-              labelStyle={{ fontSize: "0.75rem", color: "#374151" }}
+              labelStyle={{ fontSize: "0.75rem", color: "var(--popover-foreground)" }}
               contentStyle={{
                 fontSize: "0.75rem",
                 borderRadius: 8,
-                border: "1px solid #F3F4F6",
+                border: "1px solid var(--border)",
+                background: "var(--popover)",
+                color: "var(--popover-foreground)",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
               }}
             />
             <Area
               type="monotone"
               dataKey="count"
-              stroke="#111827"
+              stroke="var(--chart-1)"
               strokeWidth={1.75}
               fill="url(#conversationTrendFill)"
             />
