@@ -5,6 +5,7 @@ import { ClippedCircle } from "./components/ClippedCircle";
 import { HamburgerMenu } from "./components/HamburgerMenu";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
 import { LOCAL_VAD_RMS_THRESHOLD, useVoiceSocket } from "./hooks/useVoiceSocket";
+import { useWakeWord } from "./hooks/useWakeWord";
 import type { CatState } from "./types";
 import "./App.css";
 
@@ -45,12 +46,30 @@ function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boole
 // ?debug=1 เปิด overlay โชว์ RMS/threshold สดของ local VAD — ไว้ให้ผู้ใช้ทดสอบด้วยเสียงจริงแล้ว
 // ตัดสินใจเรื่องปรับ threshold/hangover ร่วมกัน (ยังไม่แก้ logic การตรวจจับใด ๆ ในรอบนี้)
 const isDebug = new URLSearchParams(window.location.search).get("debug") === "1";
+// เปิด wake-word ด้วย ?wakeword=1 เท่านั้น (2026-09-12 — ทำเองแทนที่ของเพื่อนที่แม่นไม่พอ ดู
+// useWakeWord.ts) ยังไม่ผ่านการทดสอบกับผู้ใช้จริงหลายคนตามที่สโคปกำหนด ห้ามเปิดเป็น default ของ
+// kiosk จนกว่าจะทดสอบแล้ว — คำปลุกตอนนี้คือ "สวัสดี" (ง่ายๆ ไปก่อน คาดว่าต้องเปลี่ยนทีหลัง)
+const isWakeWordEnabled = new URLSearchParams(window.location.search).get("wakeword") === "1";
 
 export function App() {
   const [mode, setMode] = useState<Mode>("live-voice");
 
   // ---- โหมดคุยด้วยเสียงจริง (Gemini Live ผ่าน backend WS) ----
   const voice = useVoiceSocket({ debug: isDebug });
+
+  // ---- ปลุกด้วยเสียง (?wakeword=1 เท่านั้น ดู useWakeWord.ts) ----
+  const [wakeWordTranscript, setWakeWordTranscript] = useState("");
+  const wakeWordStatus = useWakeWord({
+    // ฟังเฉพาะตอนยังไม่ได้เริ่มคุยจริงเท่านั้น — ไมค์อีกตัวใน useVoiceSocket.ts (ตอน connect())
+    // ต้องไม่ถูกแย่งจากตัวนี้ ปิดทันทีที่เริ่มเชื่อมต่อจริงไม่ว่าจะด้วยปุ่มหรือคำปลุกเอง
+    enabled:
+      isWakeWordEnabled &&
+      mode === "live-voice" &&
+      (voice.catState === "idle" || voice.catState === "sleep") &&
+      (voice.connectionState === "idle" || voice.connectionState === "closed"),
+    onDetected: () => { void voice.connect(); },
+    onTranscript: isWakeWordEnabled ? (transcript) => setWakeWordTranscript(transcript) : undefined,
+  });
 
   // ---- โหมดพรีวิวหน้าใหม่จาก Figma (เดิม CharacterPage.tsx คุมเอง แยก state/controls ออกมาแล้ว
   // เพื่อขับ stage เต็มจอตัวเดียวกันกับโหมดอื่น ดู CharacterPage.tsx) ----
@@ -143,6 +162,31 @@ export function App() {
           <div>isSpeechNow: {String(voice.debugVad?.isSpeechNow ?? false)}</div>
           <div>wasSpeech: {String(voice.debugVad?.wasSpeech ?? false)}</div>
           <div>offTopic: {String(voice.offTopic)}</div>
+        </div>
+      )}
+
+      {isWakeWordEnabled && mode === "live-voice" && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 12,
+            left: 12,
+            background: "rgba(0,0,0,0.75)",
+            color: "#fff",
+            fontFamily: "monospace",
+            fontSize: 13,
+            padding: "10px 14px",
+            borderRadius: 8,
+            lineHeight: 1.6,
+            pointerEvents: "none",
+            zIndex: 999,
+            maxWidth: 280,
+          }}
+        >
+          <div>?wakeword=1 — wake-word (useWakeWord.ts)</div>
+          <div>listener: {wakeWordStatus}</div>
+          <div>คำปลุก: "สวัสดี"</div>
+          <div>transcript ล่าสุด: {wakeWordTranscript || "(ยังไม่มี)"}</div>
         </div>
       )}
     </div>
