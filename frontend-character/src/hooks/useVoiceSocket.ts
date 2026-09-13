@@ -90,7 +90,9 @@ interface UseVoiceSocketResult {
   amplitude: number;
   transcript: string;
   errorMessage: string | null;
-  connect: () => Promise<void>;
+  /** `greetFirst`: ให้แมวทักทายก่อนเองโดยไม่ต้องรอผู้ใช้พูด — ใช้เฉพาะตอนตื่นจาก wake-word เท่านั้น
+   * (ปุ่ม "เริ่มคุย" ไม่ส่ง flag นี้ ยังคงพฤติกรรมเดิมทุกประการ) */
+  connect: (options?: { greetFirst?: boolean }) => Promise<void>;
   disconnect: () => void;
   /**
    * ค่าดิบของ local RMS VAD ต่อเฟรม — มีค่าจริงเฉพาะตอนเปิด `{ debug: true }` เท่านั้น (ปิดไว้เป็น
@@ -256,7 +258,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setDebugVad(null);
   }, [setCatStateSafe]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (options?: { greetFirst?: boolean }) => {
     setErrorMessage(null);
     setConnectionState("connecting");
     setTranscript("");
@@ -483,6 +485,12 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       setConnectionState("connected");
       setCatStateSafe("idle");
       resetIdleTimer();
+      // เฉพาะทาง wake-word (App.tsx: useWakeWord's onDetected) — ผู้ใช้เพิ่งเรียกด้วยเสียงแล้วไม่มี
+      // ปุ่มให้กดยืนยันอีกที ต่างจากปุ่ม "เริ่มคุย" ที่ผู้ใช้ตั้งใจกดเพื่อเริ่มพูดเองอยู่แล้ว จึงยังคง
+      // รอผู้ใช้พูดก่อนตามปกติ (ไม่ทักทายเอง) — ฝั่ง backend ดู GREET_FIRST_MESSAGE ใน routers/voice.py
+      if (options?.greetFirst) {
+        ws.send(JSON.stringify({ type: "greet_first" }));
+      }
     };
     ws.onmessage = (event) => {
       if (typeof event.data === "string") {

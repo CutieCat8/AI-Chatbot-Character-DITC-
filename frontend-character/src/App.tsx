@@ -29,11 +29,15 @@ type Mode = "live-voice" | "figma-preview";
  */
 function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boolean, offTopic: boolean): CatFaceState {
   if (offTopic) return "angry";
+  // botSpeaking ต้องชนะ catState เสมอ ไม่ใช่แค่ใต้ case "wake" (2026-09-14 — เจอจริงตอนต่อ
+  // greet-first: catState ยังเป็น "idle" อยู่ตอน ws.onopen แล้วรอ tick() เห็น isBotSpeaking()===true
+  // ค่อยเปลี่ยนเป็น "wake" — มีช่วงสั้น ๆ ที่เสียงทักทายเริ่มเล่นแล้วแต่ catState ยังไม่ทันอัปเดต ถ้า
+  // เช็คแค่ใต้ case "wake" ตาจะค้าง idle ปากไม่ขยับทั้งที่มีเสียงพูดออกมาจริง)
+  if (botSpeaking) return "speaking";
   switch (state) {
     case "sleep":
       return "sleeping";
     case "wake":
-      if (botSpeaking) return "speaking";
       if (isThinking) return "thinking";
       return "listening";
     case "transition":
@@ -67,7 +71,10 @@ export function App() {
       mode === "live-voice" &&
       (voice.catState === "idle" || voice.catState === "sleep") &&
       (voice.connectionState === "idle" || voice.connectionState === "closed"),
-    onDetected: () => { void voice.connect(); },
+    // greetFirst: เฉพาะทางนี้เท่านั้น — ปุ่ม "เริ่มคุย" ที่ LiveVoicePanel เรียก voice.connect() ตรงๆ
+    // ไม่มี flag นี้ ยังรอผู้ใช้พูดก่อนตามเดิม (ผู้ใช้กดปุ่มเองอยู่แล้ว ต่างจาก wake-word ที่ไม่มีปุ่ม
+    // ให้กดยืนยันอีกที) ดู GREET_FIRST_MESSAGE ใน backend/app/routers/voice.py
+    onDetected: () => { void voice.connect({ greetFirst: true }); },
     onTranscript: isDebug ? (transcript) => setWakeWordTranscript(transcript) : undefined,
   });
 
@@ -129,7 +136,9 @@ export function App() {
             connectionState={voice.connectionState}
             transcript={voice.transcript}
             errorMessage={voice.errorMessage}
-            onConnect={voice.connect}
+            // ห้ามส่ง voice.connect ตรงๆ — LiveVoicePanel ผูกกับ onClick ซึ่งจะส่ง MouseEvent มาเป็น
+            // arg ตัวแรก (กลายเป็น options ของ connect() โดยไม่ตั้งใจ) ปุ่มนี้ต้องไม่มี greetFirst เสมอ
+            onConnect={() => voice.connect()}
             onDisconnect={voice.disconnect}
           />
         )}
