@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { logWake } from "../lib/wakeLog";
 import type { CatState } from "../types";
 
 const INPUT_SAMPLE_RATE = 16000; // Gemini Live รับเสียงเข้าที่ 16kHz PCM16 mono
@@ -25,6 +26,9 @@ const LISTENING_HANGOVER_MS = 900;
 // (ผู้ใช้ไม่เห็นหน้า listening/thinking ช้าลง — คุมแค่ตอนแมวพูดจบแล้วเท่านั้น)
 const BOT_SPEECH_END_HANGOVER_MS = 700;
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
+// เผื่อ greet_first ล้มเหลวเงียบๆ (backend มี try/except กันไว้อยู่แล้ว — ดู routers/voice.py) ไม่งั้น
+// greetMicMuted ค้าง true ตลอดไป ไมค์ไม่มีวันเปิดฟังจริงเลย แย่กว่าบั๊กเดิม (ดูคอมเมนต์ที่ connect())
+const GREET_MIC_MUTE_TIMEOUT_MS = 4_000;
 
 // ⚠️ ทดลองแก้บั๊ก "เสียงติ๊ก/ป็อบแทรกระหว่างแมวพูด" (2026-09-08) — ยังไม่ยืนยันด้วยอุปกรณ์จริง/หูจริง
 // ห้ามเชื่อว่าหายแล้วจนกว่าจะรัน docs/click-noise-manual-test-plan.md บนแท็บเล็ตจริง (ดู CLAUDE.md)
@@ -173,6 +177,10 @@ export function isScheduledAudioPlaying(scheduled: ScheduledAudio[], now: number
 export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketResult {
   const debugEnabled = opts.debug ?? false;
   const [connectionState, setConnectionState] = useState<VoiceConnectionState>("idle");
+  // อ่านค่าล่าสุดใน connect() ได้แบบ synchronous โดยไม่ต้องรอ re-render (เหมือน catStateRef ด้านล่าง)
+  // ใช้กันเรียก connect() ซ้อนกัน — เช่น ปุ่ม "เริ่มคุย" กับ wake-word ยิงมาใกล้ๆ กันพอดี (ดู state
+  // machine เต็มที่ useWakeWord.ts: listening -> releasing_mic -> เรียก onDetected -> ที่นี่)
+  const connectionStateRef = useRef<VoiceConnectionState>("idle");
   const [catState, setCatState] = useState<CatState>("idle");
   const [botSpeaking, setBotSpeaking] = useState(false);
   const [debugVad, setDebugVad] = useState<UseVoiceSocketResult["debugVad"]>(null);
@@ -219,6 +227,17 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setCatState(s);
   }, []);
 
+  const setConnectionStateSafe = useCallback(
+    (s: VoiceConnectionState | ((prev: VoiceConnectionState) => VoiceConnectionState)) => {
+      setConnectionState((prev) => {
+        const next = typeof s === "function" ? s(prev) : s;
+        connectionStateRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
@@ -249,18 +268,26 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     wsRef.current?.close();
     void audioCtxRef.current?.close();
     audioCtxRef.current = null;
-    setConnectionState("closed");
+    setConnectionStateSafe("closed");
     setCatStateSafe("idle");
     setAmplitude(0);
     setBotSpeaking(false);
     setIsThinking(false);
     setOffTopic(false);
     setDebugVad(null);
-  }, [setCatStateSafe]);
+  }, [setCatStateSafe, setConnectionStateSafe]);
 
   const connect = useCallback(async (options?: { greetFirst?: boolean }) => {
+    // กันเรียกซ้อนกัน — เช่น ปุ่ม "เริ่มคุย" กับ wake-word ยิงมาใกล้ๆ กันพอดี (state machine เต็มที่
+    // useWakeWord.ts: listening -> releasing_mic -> เรียก onDetected -> connect() ที่นี่ ต้องไม่มี
+    // การเรียกซ้อนสอง getUserMedia/WebSocket พร้อมกันจากคนละ trigger)
+    if (connectionStateRef.current === "connecting" || connectionStateRef.current === "connected") {
+      logWake("connect_skipped_already_in_progress", connectionStateRef.current);
+      return;
+    }
+    logWake("connect_start", options?.greetFirst ? "greetFirst=true" : "greetFirst=false");
     setErrorMessage(null);
-    setConnectionState("connecting");
+    setConnectionStateSafe("connecting");
     setTranscript("");
     wasSpeechRef.current = false; // กัน state ค้างข้ามรอบ connect (เช่น reconnect หลังกด หยุด/เริ่มใหม่)
     silentStreakRef.current = 0;
@@ -268,6 +295,29 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     hasBotSpokenThisTurnRef.current = false;
     botSpeechEndSinceRef.current = null;
     setOffTopic(false);
+
+    // เจอบั๊กจริง (2026-09-14): ตอน greetFirst ไมค์ตัวใหม่ (getUserMedia ด้านล่าง) เริ่มจับเสียงทันที
+    // ที่เปิดสำเร็จ — ไม่รอให้แมวเริ่มพูดทักทายก่อนเลย (isBotSpeaking() ยังเป็น false อยู่ช่วงนั้น
+    // เพราะรอ Gemini สร้างเสียง + JITTER_BUFFER_MS) เสียงแวดล้อม/เสียงพูดค้างแถวไมค์ช่วงนี้ (RMS ผ่าน
+    // threshold ต่ำแค่ 0.02) จะโดนส่งเป็น speech_start ของจริงให้ backend ทันที ซึ่ง backend ใช้
+    // speech_start เป็นตัวเคลียร์ greet_pending guard (ดู routers/voice.py บรรทัด "ผู้ใช้เริ่มพูดจริง
+    // แล้ว") — เคลียร์ guard ไปก่อนแมวจะทักทายจบเสียอีก พอเสียงแวดล้อมนั้นโดน Gemini ตีความว่าไม่เกี่ยว
+    // กับ CAMT/DITC (มันคือเสียงเพี้ยน/สิ่งแวดล้อม ไม่ใช่คำถามจริง) ก็เรียก flag_off_topic ได้ปกติเพราะ
+    // guard ที่ควรกันไว้หายไปแล้ว กลายเป็นบั๊กที่ผู้ใช้เจอ: พูด "สวัสดี" เดี่ยวๆ แล้วโดนตอบ "ตอบได้แค่
+    // เรื่อง DITC/CAMT" ทั้งที่ SYSTEM_INSTRUCTION มีข้อยกเว้นทักทายอยู่แล้ว — ปัญหาจริงไม่ได้อยู่ที่
+    // prompt แต่อยู่ที่ไมค์ส่งเสียงจริงแทรกเข้ามาช่วง greet-first ก่อนเวลาอันควร แก้โดย mute ไมค์
+    // (เหมือน half-duplex ตอนแมวพูด) ไว้จนกว่าแมวจะเริ่มพูดทักทายจริง (isBotSpeaking()===true ครั้ง
+    // แรก) หรือครบ timeout กันค้างถ้า greet_first ล้มเหลวเงียบๆ (ดู try/except ฝั่ง backend)
+    let greetMicMuted = options?.greetFirst === true;
+    let greetMicMuteTimer: ReturnType<typeof setTimeout> | null = null;
+    if (greetMicMuted) {
+      logWake("greet_mic_mute_start");
+      greetMicMuteTimer = setTimeout(() => {
+        logWake("greet_mic_mute_timeout_fallback", `${GREET_MIC_MUTE_TIMEOUT_MS}ms`);
+        greetMicMuted = false;
+        greetMicMuteTimer = null;
+      }, GREET_MIC_MUTE_TIMEOUT_MS);
+    }
 
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
@@ -344,6 +394,17 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       const speaking = isBotSpeaking();
       setBotSpeaking(speaking);
       if (speaking) {
+        if (greetMicMuted) {
+          // แมวเริ่มพูดทักทายจริงแล้ว (เสียงเริ่มเล่นจริงหลัง jitter buffer) เลิก mute ไมค์พิเศษช่วง
+          // greet-first ได้ — isBotSpeaking() เองจะรับช่วง mute ต่อตามปกติ (half-duplex เดิม) ไม่มี
+          // ช่วงที่ไมค์เปิดค้างระหว่างสองกลไกนี้
+          greetMicMuted = false;
+          logWake("greet_mic_mute_cleared", "bot_started_speaking");
+          if (greetMicMuteTimer) {
+            clearTimeout(greetMicMuteTimer);
+            greetMicMuteTimer = null;
+          }
+        }
         if (catStateRef.current !== "wake") setCatStateSafe("wake");
         setIsThinking(false); // แมวเริ่มพูดจริงแล้ว เลิกนับว่าเป็นช่วงรอคำตอบ
         hasBotSpokenThisTurnRef.current = true; // ยืนยันแล้วว่าเทิร์นนี้แมวได้พูดจริง ไม่ใช่แค่เงียบเฉย ๆ
@@ -374,9 +435,27 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     rafIdRef.current = requestAnimationFrame(tick);
 
     // ---- ไมค์: จับเสียง -> downsample เป็น 16kHz -> ส่งเข้า WS (half-duplex: เว้นตอนแมวพูด) ----
-    const micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, sampleRate: INPUT_SAMPLE_RATE },
-    });
+    logWake("getUserMedia_start");
+    let micStream: MediaStream;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, sampleRate: INPUT_SAMPLE_RATE },
+      });
+    } catch (error) {
+      // เดิมไม่มี try/catch ตรงนี้เลย — getUserMedia ล้มเหลว (เช่น ชนกับ wake-word recognizer ที่ยัง
+      // ไม่คาย permission/session ไมค์ทัน) จะทำให้ connect() (async function) reject เฉยๆ ไม่มีใคร
+      // .catch() (ผู้เรียกทั้งคู่ใช้ `void voice.connect(...)`) กลายเป็น unhandled rejection แล้ว
+      // connectionState ค้างที่ "connecting" ตลอดไป — enabled ของ useWakeWord ก็เลยไม่กลับมา true
+      // อีกเลย (เงื่อนไขต้องการ "idle"/"closed") ทั้งปุ่มและคำปลุกใช้ไม่ได้จนกว่าจะรีเฟรชหน้า
+      logWake("getUserMedia_error", error instanceof Error ? error.message : String(error));
+      setErrorMessage("ขอสิทธิ์ไมค์ไม่สำเร็จ — ลองพูดคำปลุกหรือกด \"เริ่มคุย\" ใหม่อีกครั้ง");
+      setConnectionStateSafe("error");
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      void audioCtx.close();
+      audioCtxRef.current = null;
+      return;
+    }
+    logWake("getUserMedia_success");
     micStreamRef.current = micStream;
     const micSource = audioCtx.createMediaStreamSource(micStream);
     micSourceRef.current = micSource;
@@ -399,8 +478,9 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       if (ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
 
-      // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด
-      if (isBotSpeaking()) {
+      // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด รวมถึงช่วงพิเศษ
+      // greetMicMuted (รอแมวเริ่มพูดทักทายจริงหลัง wake-word — ดูคอมเมนต์ที่ต้น connect())
+      if (isBotSpeaking() || greetMicMuted) {
         // ถ้าเพิ่งพูดค้างอยู่ตอนโดน mute (เช่น เผลอพูดคาบเกี่ยวจังหวะที่เสียงแมวเริ่มเล่นจริงหลัง
         // jitter buffer 1.5s ซึ่ง isBotSpeaking() ยังไม่ทันขึ้น true) ต้องปิด activity ให้ Gemini
         // ทันทีตรงนี้ ไม่งั้น wasSpeechRef ค้างเป็น true ข้ามรอบ mute พอเปิดไมค์กลับมาแล้วผู้ใช้เริ่ม
@@ -482,13 +562,15 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     };
 
     ws.onopen = () => {
-      setConnectionState("connected");
+      logWake("ws_open");
+      setConnectionStateSafe("connected");
       setCatStateSafe("idle");
       resetIdleTimer();
       // เฉพาะทาง wake-word (App.tsx: useWakeWord's onDetected) — ผู้ใช้เพิ่งเรียกด้วยเสียงแล้วไม่มี
       // ปุ่มให้กดยืนยันอีกที ต่างจากปุ่ม "เริ่มคุย" ที่ผู้ใช้ตั้งใจกดเพื่อเริ่มพูดเองอยู่แล้ว จึงยังคง
       // รอผู้ใช้พูดก่อนตามปกติ (ไม่ทักทายเอง) — ฝั่ง backend ดู GREET_FIRST_MESSAGE ใน routers/voice.py
       if (options?.greetFirst) {
+        logWake("greet_first_sent");
         ws.send(JSON.stringify({ type: "greet_first" }));
       }
     };
@@ -512,10 +594,12 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       }
     };
     ws.onerror = () => {
+      logWake("ws_error");
       setErrorMessage("เชื่อมต่อ WebSocket ไม่สำเร็จ — เช็คว่า backend รันอยู่ที่ localhost:8000 หรือเปล่า");
-      setConnectionState("error");
+      setConnectionStateSafe("error");
     };
     ws.onclose = (closeEvent) => {
+      logWake("ws_close", `code=${closeEvent.code} reason=${closeEvent.reason || "(none)"}`);
       // backend ปิด WS เองพร้อม code+reason ในบางเคส (เช่น ไม่มี GEMINI_API_KEY ใน .env —
       // ดู routers/voice.py `websocket.close(code=1011, reason=...)`) เดิมโค้ดทิ้ง event ไปเฉยๆ
       // ผู้ใช้กดเริ่มคุยแล้วเห็นแค่กลับไป idle เงียบๆ ไม่รู้เลยว่าทำไม (2026-09-08 เจอเคสจริง) —
@@ -523,7 +607,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       if (closeEvent.code !== 1000 && closeEvent.reason) {
         setErrorMessage(`การเชื่อมต่อถูกปิด (${closeEvent.code}): ${closeEvent.reason}`);
       }
-      setConnectionState((prev) => (prev === "error" ? prev : "closed"));
+      setConnectionStateSafe((prev) => (prev === "error" ? prev : "closed"));
       // เจอจริงตอนทดสอบ: ถ้า WS หลุดกะทันหัน (ไม่ใช่กดปุ่ม "หยุดคุย" — นั่นไปทาง disconnect()
       // ที่ reset ครบอยู่แล้ว) ตอนแมวกำลังโกรธ/ฟัง/คิดอยู่พอดี ค่าพวกนี้จะไม่มีใคร reset เลย ค้างข้าม
       // ไปยัง session/การเชื่อมต่อครั้งถัดไป (คนถัดไปกดเริ่มคุยมาเจอแมวโกรธใส่ทันที แย่กว่าบั๊กเดิม)
@@ -542,7 +626,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       silentStreakRef.current = 0;
       listeningSilentStreakRef.current = 0;
     };
-  }, [isBotSpeaking, resetIdleTimer, setCatStateSafe, debugEnabled]);
+  }, [isBotSpeaking, resetIdleTimer, setCatStateSafe, setConnectionStateSafe, debugEnabled]);
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
 
