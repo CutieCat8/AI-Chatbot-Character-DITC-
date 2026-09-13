@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import CatFace, { type CatFaceState, useBlink, useGazeLoop } from "./components/character/CatFace";
 import { FigmaPreviewControls, useFigmaPreviewControls } from "./components/character/CharacterPage";
 import { ClippedCircle } from "./components/ClippedCircle";
@@ -6,6 +6,7 @@ import { HamburgerMenu } from "./components/HamburgerMenu";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
 import { LOCAL_VAD_RMS_THRESHOLD, useVoiceSocket } from "./hooks/useVoiceSocket";
 import { useWakeWord } from "./hooks/useWakeWord";
+import { formatWakeLog } from "./lib/wakeLog";
 import type { CatState } from "./types";
 import "./App.css";
 
@@ -77,6 +78,20 @@ export function App() {
     onDetected: () => { void voice.connect({ greetFirst: true }); },
     onTranscript: isDebug ? (transcript) => setWakeWordTranscript(transcript) : undefined,
   });
+
+  // ?debug=1: หาง log ล่าสุด (ดู lib/wakeLog.ts) แบบ realtime ในหน้าเลย — ไม่ต้องพึ่ง console/
+  // window.__wakeLog() อย่างเดียว เจ้าของงานทดสอบด้วยเสียงจริงต้องเห็นทันทีว่า match/abort/end/
+  // connect เกิดตอนไหนบ้างโดยไม่ต้องสลับไปเปิด devtools ระหว่างพูด (poll แทน event เพราะ log มาจาก
+  // native callback ของ SpeechRecognition/WebSocket หลายจุด ทำ pub/sub ทุกจุดเกินความจำเป็นของ
+  // debug overlay ที่ไม่ได้โชว์ตลอดเวลาอยู่แล้ว)
+  const [wakeLogTail, setWakeLogTail] = useState<string>("");
+  useEffect(() => {
+    if (!isDebug) return;
+    const id = setInterval(() => {
+      setWakeLogTail(formatWakeLog().split("\n").slice(-10).join("\n"));
+    }, 250);
+    return () => clearInterval(id);
+  }, [isDebug]);
 
   // ---- โหมดพรีวิวหน้าใหม่จาก Figma (เดิม CharacterPage.tsx คุมเอง แยก state/controls ออกมาแล้ว
   // เพื่อขับ stage เต็มจอตัวเดียวกันกับโหมดอื่น ดู CharacterPage.tsx) ----
@@ -194,8 +209,22 @@ export function App() {
         >
           <div>?debug=1 — wake-word (useWakeWord.ts)</div>
           <div>listener: {wakeWordStatus}</div>
+          <div>connectionState: {voice.connectionState}</div>
           <div>คำปลุก: "สวัสดี"</div>
           <div>transcript ล่าสุด: {wakeWordTranscript || "(ยังไม่มี)"}</div>
+          <div style={{ marginTop: 6, borderTop: "1px solid rgba(255,255,255,0.3)", paddingTop: 6 }}>
+            log ล่าสุด (เต็มดู console.log ผ่าน window.__wakeLog()):
+          </div>
+          <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 11, opacity: 0.9 }}>{wakeLogTail}</pre>
+          <button
+            style={{ marginTop: 6, pointerEvents: "auto", fontFamily: "monospace", fontSize: 12 }}
+            onClick={() => {
+              const text = window.__wakeLog?.() ?? "";
+              navigator.clipboard?.writeText(text).catch(() => {});
+            }}
+          >
+            ก๊อป log ทั้งหมด
+          </button>
         </div>
       )}
     </div>
