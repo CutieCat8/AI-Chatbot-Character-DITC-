@@ -111,7 +111,14 @@ export function useWakeWord({
   const [status, setStatus] = useState<WakeWordListenerStatus>("disabled");
   const callbackRef = useRef(onDetected);
   const transcriptCallbackRef = useRef(onTranscript);
-  const lastDetectedAtRef = useRef(0);
+  // เจอบั๊กจริง (2026-09-14, log ยืนยัน): เดิม init เป็น 0 แล้วเทียบกับ performance.now() ตรงๆ
+  // (นับตั้งแต่ navigation start ของทั้งหน้า ไม่ใช่ตั้งแต่ session/effect นี้เริ่ม) ถ้าทั้งเซสชัน
+  // (โหลดหน้า -> พูดคำปลุกครั้งแรก) ใช้เวลารวมน้อยกว่า DETECTION_COOLDOWN_MS (4s) การตรวจจับ "ครั้ง
+  // แรกสุด" ของทั้งเซสชันจะโดน cooldown บล็อกไปเงียบๆ (now - 0 ยังไม่ถึง 4000) ทั้งที่ไม่เคยตรวจจับ
+  // อะไรมาก่อนเลย — เจอจริงจาก log: transcript ขึ้น "สวัสดี"/"สวัสดีจ๊ะ" ตรงคำพูดเป๊ะ แต่ไม่มี
+  // match_detected ตามมาเลยตอนพูดเร็วหลังโหลดหน้า init เป็น -Infinity แทน รับประกันว่าการตรวจจับ
+  // ครั้งแรกของทุก mount ไม่มีวันโดน cooldown เทียมจากค่าเริ่มต้นบล็อก
+  const lastDetectedAtRef = useRef(-Infinity);
   useEffect(() => {
     callbackRef.current = onDetected;
   }, [onDetected]);
