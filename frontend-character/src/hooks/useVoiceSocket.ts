@@ -306,17 +306,34 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     // guard ที่ควรกันไว้หายไปแล้ว กลายเป็นบั๊กที่ผู้ใช้เจอ: พูด "สวัสดี" เดี่ยวๆ แล้วโดนตอบ "ตอบได้แค่
     // เรื่อง DITC/CAMT" ทั้งที่ SYSTEM_INSTRUCTION มีข้อยกเว้นทักทายอยู่แล้ว — ปัญหาจริงไม่ได้อยู่ที่
     // prompt แต่อยู่ที่ไมค์ส่งเสียงจริงแทรกเข้ามาช่วง greet-first ก่อนเวลาอันควร แก้โดย mute ไมค์
-    // (เหมือน half-duplex ตอนแมวพูด) ไว้จนกว่าแมวจะเริ่มพูดทักทายจริง (isBotSpeaking()===true ครั้ง
-    // แรก) หรือครบ timeout กันค้างถ้า greet_first ล้มเหลวเงียบๆ (ดู try/except ฝั่ง backend)
+    // (เหมือน half-duplex ตอนแมวพูด) ไว้จนกว่าแมวจะเริ่มพูดทักทายจริง (isBotSpeaking()===true)
+    //
+    // แก้รอบสอง (2026-09-14 หลังทดสอบจริง 10 รอบ — เจ้าของงานทัก): เดิมผูก unmute ไว้กับ setTimeout
+    // ตายตัว 4s เพียวๆ ผิดหลักการ เพราะ "ถึงเวลาที่ตั้งไว้แล้ว" ไม่ได้แปลว่า "ปลอดภัยที่จะเปิดไมค์แล้ว"
+    // จริงๆ — ถ้า Gemini ตอบช้ากว่านั้น (ยังไม่ตัดสินว่าล้มเหลวจริง แค่ buffer/เน็ตช้า) มันจะเปิดไมค์
+    // ทั้งที่ response ยังมาไม่ถึง/กำลังจะมาถึงพอดี เปิดโอกาสให้เสียงแวดล้อมหลุดเข้าไปอีกรอบเหมือนเดิม
+    // ต้องผูก "ปลอดภัยที่จะเปิดไมค์" กับสัญญาณจริงว่าแมวพูดอยู่ (isBotSpeaking()) เท่านั้น — timeout
+    // ที่เหลือมีไว้ "กันค้างถาวร" กรณี greet_first ล้มเหลวจริง (ไม่มี response อะไรเลยจาก Gemini เลย
+    // ไม่ใช่แค่ช้า) เปลี่ยนเป็น "นับถอยหลังใหม่ทุกครั้งที่มี activity จาก Gemini เข้ามา" (transcript
+    // หรือเสียง — ดู ws.onmessage ด้านล่าง) แทนนับครั้งเดียวตายตัว ตราบใดที่ยังมีอะไรไหลเข้ามาเรื่อยๆ
+    // (แปลว่า turn ยังไม่ตาย แค่ยังไม่ถึงคิวเล่นเสียงจริงเพราะ jitter buffer) จะไม่ตัดใจเปิดไมค์ก่อนเวลา
+    // ต่อให้เวลารวมผ่านไปเกิน GREET_MIC_MUTE_TIMEOUT_MS แล้วก็ตาม — เงียบสนิทไม่มี activity อะไรเลย
+    // ต่อเนื่องครบ timeout เท่านั้นถึงจะถือว่าล้มเหลวจริงแล้วเปิดไมค์
     let greetMicMuted = options?.greetFirst === true;
     let greetMicMuteTimer: ReturnType<typeof setTimeout> | null = null;
-    if (greetMicMuted) {
-      logWake("greet_mic_mute_start");
+    const armGreetMicMuteTimeout = () => {
+      if (greetMicMuteTimer) clearTimeout(greetMicMuteTimer);
       greetMicMuteTimer = setTimeout(() => {
-        logWake("greet_mic_mute_timeout_fallback", `${GREET_MIC_MUTE_TIMEOUT_MS}ms`);
+        // มาถึงจุดนี้ได้แปลว่าเงียบสนิทไม่มี activity อะไรจาก Gemini เลยต่อเนื่องครบเวลาที่ตั้งไว้ —
+        // ถือว่า greet_first ล้มเหลวจริง ไม่ใช่แค่ช้า เปิดไมค์คืนให้ผู้ใช้พูดเองตามปกติ
+        logWake("greet_mic_mute_timeout_fallback", `${GREET_MIC_MUTE_TIMEOUT_MS}ms_no_activity`);
         greetMicMuted = false;
         greetMicMuteTimer = null;
       }, GREET_MIC_MUTE_TIMEOUT_MS);
+    };
+    if (greetMicMuted) {
+      logWake("greet_mic_mute_start");
+      armGreetMicMuteTimeout();
     }
 
     const audioCtx = new AudioContext();
@@ -435,11 +452,21 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     rafIdRef.current = requestAnimationFrame(tick);
 
     // ---- ไมค์: จับเสียง -> downsample เป็น 16kHz -> ส่งเข้า WS (half-duplex: เว้นตอนแมวพูด) ----
+    // echoCancellation/noiseSuppression/autoGainControl: เดิมไม่ได้ขอเลย (เจ้าของงานทัก 2026-09-14
+    // ว่าห้ามเชื่อคอมเมนต์เก่าที่อ้างว่า "มือถือไม่มี AEC" โดยไม่มีหลักฐาน ต้องเปิดจริงแล้วทดสอบ) —
+    // ขอไว้เสมอทั้งบนอุปกรณ์ที่รองรับและไม่รองรับ (ไม่รองรับก็แค่ browser เพิกเฉย ไม่ error) ไม่ตัดสิน
+    // เองว่าอุปกรณ์ไหนมี/ไม่มี AEC ให้ระบบ/เบราว์เซอร์เป็นคนตัดสินใจแทน
     logWake("getUserMedia_start");
     let micStream: MediaStream;
     try {
       micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, sampleRate: INPUT_SAMPLE_RATE },
+        audio: {
+          channelCount: 1,
+          sampleRate: INPUT_SAMPLE_RATE,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
     } catch (error) {
       // เดิมไม่มี try/catch ตรงนี้เลย — getUserMedia ล้มเหลว (เช่น ชนกับ wake-word recognizer ที่ยัง
@@ -575,6 +602,12 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       }
     };
     ws.onmessage = (event) => {
+      // ยังมี activity จาก Gemini เข้ามาเรื่อยๆ ระหว่างรอ greet-first (transcript/เสียง/off_topic
+      // ล้วนนับ) — ยืดเวลา timeout กันค้างออกไปอีก ไม่ใช่ตัดสินว่าล้มเหลวทั้งที่ยังมีอะไรไหลเข้ามาอยู่
+      // (ดูคอมเมนต์เต็มที่ประกาศ greetMicMuted ต้น connect()) ต้องเช็คก่อนว่ายัง muted จริงไหม กัน
+      // เรียก armGreetMicMuteTimeout() เปล่าๆ หลังปลดล็อกไปแล้ว (เช่น แมวเริ่มพูดจริงแล้ว)
+      if (greetMicMuted) armGreetMicMuteTimeout();
+
       if (typeof event.data === "string") {
         const msg = JSON.parse(event.data) as { type: string; text?: string };
         if (msg.type === "transcript" && msg.text) {
