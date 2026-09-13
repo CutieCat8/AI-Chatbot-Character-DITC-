@@ -14,10 +14,12 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 
 from app.config import settings
 
-# echo=True จะ log SQL ที่รันออกมา (ช่วยเรียนรู้ตอน dev), ปิดใน production
+# เดิมผูก echo กับ APP_DEBUG ตรงๆ — ปิดแล้ว (2026-09-14 เจ้าของงานสั่ง) เพราะ APP_DEBUG=true ปกติตอน
+# dev ทำให้ SQL log ท่วม console จนอ่าน log อื่นที่ต้องการจริงๆ (เช่น [greet_diag]/[input_stt_diag]
+# ใน routers/voice.py) ไม่ออกเลย ถ้าอยากดู SQL อีกทีให้เปิด echo=True ตรงนี้ชั่วคราวเฉพาะตอนต้องการจริง
 engine = create_engine(
     settings.database_url,
-    echo=settings.APP_DEBUG,
+    echo=False,
     pool_pre_ping=True,  # เช็ก connection ก่อนใช้ กัน connection ตาย
 )
 

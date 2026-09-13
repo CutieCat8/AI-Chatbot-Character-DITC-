@@ -19,6 +19,14 @@ from app.database import engine
 from app.rag.embedding import get_embedder
 from app.routers import auth, chat, documents, stats, voice
 
+# เจอบั๊กจริง (2026-09-14): ไม่เคยเรียก logging.basicConfig() เลยสักที่ในทั้งโปรเจกต์ — root logger
+# เลยอยู่ที่ระดับ default (WARNING) ทุก logger.info(...) ที่เขียนไว้ทั้งแอป (รวม [greet_diag]/
+# [input_stt_diag] ใน routers/voice.py) เลยไม่เคยถูก print ออกมาจริงเลยสักครั้ง ทั้งที่โค้ดไม่มีอะไร
+# ผิด — เห็นแต่ SQL echo ของ SQLAlchemy เพราะ create_engine(echo=True) ไป setLevel(INFO) ให้ logger
+# "sqlalchemy.engine" ของตัวเองตรงๆ (ไม่ผ่าน root) ท่วมจนดูอย่างอื่นไม่ออกด้วย ตั้ง root logger ไว้ที่
+# INFO ตรงนี้จุดเดียว ต้นสุดของแอป (ก่อน import อย่างอื่นที่อาจ log ระหว่าง startup)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 logger = logging.getLogger("main")
 
 
