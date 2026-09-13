@@ -211,8 +211,14 @@ export function useWakeWord({
 
     recognition.onerror = (event) => {
       // "no-speech" เกิดปกติมากตอนไม่มีใครพูดนาน ๆ ในโหมด continuous — ไม่ใช่ error จริง ปล่อยให้
-      // onend สั่ง restart ต่อไปเฉย ๆ ไม่ต้อง log/เปลี่ยน status ให้ดูเหมือนพัง
-      if (event.error === "no-speech" || event.error === "aborted") return;
+      // onend สั่ง restart ต่อไปเฉย ๆ ไม่ต้องเปลี่ยน status ให้ดูเหมือนพัง — แต่ log ไว้เบาๆ (ไม่ log
+      // ผ่าน console กันสแปม) เพราะเจอเคสจริง (2026-09-14) ที่ recognizer วน start->end ไวผิดปกติ
+      // (~700-900ms/รอบ) ไม่เคยได้ยินอะไรเลย ก่อนหน้านี้ไม่มีทางรู้เลยว่า onerror ยิง "no-speech" รัวๆ
+      // อยู่หรือเปล่าเพราะไม่ log อะไรเลยตรงนี้
+      if (event.error === "no-speech" || event.error === "aborted") {
+        logWake("recognition_error_ignored", event.error);
+        return;
+      }
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         // ผู้ใช้ปฏิเสธสิทธิ์ไมค์ (หรือ browser บล็อกเอง) — restart รัว ๆ ไปก็ยิ่ง error รัว ๆ เหมือนเดิม
         // หยุดพยายามเลยจนกว่า `enabled` จะ toggle ใหม่จากภายนอก (เช่น รีเฟรชหน้า)
