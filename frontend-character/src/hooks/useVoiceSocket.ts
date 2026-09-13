@@ -673,6 +673,12 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         if (msg.type === "transcript" && msg.text) {
           setTranscript((prev) => prev + msg.text);
         } else if (msg.type === "turn_complete") {
+          // เจอจริง (2026-09-14): transcript สะสมข้ามทั้ง session แบบไม่มีจุดแบ่งเทิร์นเลย ทำให้
+          // บทสนทนาหลายเทิร์นปกติ (ผู้ใช้ถามต่อเนื่องหลายคำถามระหว่างทดสอบ) อ่านเหมือนแมวพูดเองไม่
+          // หยุดทั้งที่จริงๆ แมวตอบคำถามจริงทุกประโยค (ยืนยันจาก [input_stt_diag] ฝั่ง backend —
+          // Gemini ได้ยินคำถามจริงของผู้ใช้ทุกครั้ง ไม่ใช่ echo/hallucination) ใส่เส้นแบ่งเทิร์นให้
+          // ชัดเจน กันเข้าใจผิดแบบนี้อีกตอน debug
+          setTranscript((prev) => (prev ? prev + "\n---\n" : prev));
           // ไม่ปลด greetMicMuted ทันทีอีกต่อไป (ดูคอมเมนต์ยาวต้น connect() — เจอจริงว่า turn_complete
           // มาไวกว่าเสียงจริงมาก ปลดทันทีเลยเปิดไมค์ค้างระหว่างที่เสียงกำลังจะตามมา) แค่ "รอผ่อนผัน"
           // ก่อน ถ้าไม่มีเสียงมาเลยจนครบเวลาค่อยปลดจริง (ArrayBuffer handler ด้านล่างจะยกเลิกให้เองถ้า
