@@ -40,6 +40,16 @@ const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร
 // ผู้ใช้รอเงียบนานกว่าเดิม ดีกว่าเสี่ยงเปิดไมค์ก่อนเวลาแล้วแมวพูดวนเอง) เป็น "กันค้างถาวร" เท่านั้น
 // ไม่ใช่ตัวตัดสินปกติว่าเมื่อไหร่ปลอดภัยเปิดไมค์ (นั่นผูกกับ isBotSpeaking()/turn_complete-ไม่มีเสียง)
 const GREET_MIC_MUTE_TIMEOUT_MS = 18_000;
+// เจอบั๊กจริง (2026-09-14, log 7 รอบยืนยัน — เจ้าของงานชี้): สมมติฐานเดิมว่า turn_complete มาโดยไม่มี
+// เสียงเลย = เทิร์นจบแบบไม่มีคำตอบเสียง **ผิด** — 6/7 รอบ turn_complete ของ greet turn มาถึงไวมาก
+// (~1.3s) ก่อนเสียงจริงจะเริ่มมาตั้ง ~10s ถัดมา (สงสัยว่า turn_complete ที่มาไวนั้นเป็นของ turn อื่น
+// ไม่ใช่ของ greet turn จริง — ต้องดู [greet_diag] ฝั่ง backend ยืนยันอีกที ยังไม่สรุป) เดิมพอเจอ
+// turn_complete แบบนี้แล้วปลดไมค์ทันทีเลย เปิดโอกาสให้ไมค์เปิดค้างระหว่างที่เสียงจริงกำลังจะตามมา
+// อีกหลายวินาที — แก้เป็น "รอผ่อนผัน" แทนที่จะปลดทันที: เจอ turn_complete แบบไม่มีเสียงแล้ว รอต่ออีก
+// เท่านี้ก่อน ถ้าระหว่างนั้นมีเสียงมาจริง (ArrayBuffer) ให้ยกเลิกการปลดทันที (ให้ isBotSpeaking() เป็น
+// คนตัดสินต่อตามปกติ) ถ้าครบเวลานี้แล้วยังเงียบสนิทจริงๆ ถึงค่อยปลด — GREET_MIC_MUTE_TIMEOUT_MS ข้างบน
+// ยังคงเป็นด่านสุดท้ายกันค้างถาวรเหมือนเดิม ไม่แตะ
+const GREET_TURN_COMPLETE_GRACE_MS = 3_000;
 
 // ⚠️ ทดลองแก้บั๊ก "เสียงติ๊ก/ป็อบแทรกระหว่างแมวพูด" (2026-09-08) — ยังไม่ยืนยันด้วยอุปกรณ์จริง/หูจริง
 // ห้ามเชื่อว่าหายแล้วจนกว่าจะรัน docs/click-noise-manual-test-plan.md บนแท็บเล็ตจริง (ดู CLAUDE.md)
@@ -327,10 +337,13 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     // 4s แล้วค่อยมีเสียงมาทีหลัง (ไม่มี activity ให้ re-arm ระหว่างนั้นเลย) ไมค์เลยเปิดไปก่อนแมวเริ่ม
     // พูดจริง พอเสียงแมวเล่นออกลำโพงทีหลัง (ไม่มี AEC ก็ยิ่งซ้ำ) ไมค์ที่เปิดอยู่แล้วได้ยินตัวเองพูดวน
     // ห้ามให้เวลาเป็นตัวตัดสินว่าปลอดภัยเปิดไมค์อีกต่อไป — unmute จริงต้องมาจากสัญญาณ "รู้แน่ชัด" เท่านั้น
-    // สองทาง: (1) isBotSpeaking()===true (แมวพูดออกลำโพงจริง) (2) backend แจ้ง turn_complete มาโดยที่
-    // ไม่มีเสียง (ArrayBuffer) มาเลยสักก้อนตลอด turn นี้ (`receivedAudioForGreetTurn` — ดู ws.onmessage
-    // ด้านล่าง) แปลว่า Gemini จบเทิร์นแบบไม่มีคำตอบเสียงจริง ๆ (เช่น ทักทายเป็นข้อความล้วนไม่มี audio
-    // หรือ error) ไม่ใช่แค่ buffer/เน็ตช้า — ปลอดภัยเปิดไมค์คืนได้ทันทีไม่ต้องรอ
+    //
+    // แก้เพิ่ม (2026-09-14, log 7 รอบ): เดิมถือว่า turn_complete มาโดยไม่มีเสียงเลย = ปลอดภัยปลดไมค์
+    // ทันที **ผิด** — เจอจริง 6/7 รอบว่า turn_complete มาไวมาก (~1.3s) ทั้งที่เสียงจริงเพิ่งมาอีกตั้ง
+    // ~10s ถัดมา (สงสัยว่า turn_complete นั้นไม่ใช่ของ greet turn จริง ต้องดู [greet_diag] ยืนยัน) เปลี่ยน
+    // เป็น "รอผ่อนผัน" (ดู GREET_TURN_COMPLETE_GRACE_MS ต้นไฟล์) แทนปลดทันที — เจอ turn_complete แบบไม่มี
+    // เสียงแล้วไม่ปลดเลย รอ GREET_TURN_COMPLETE_GRACE_MS ก่อน ถ้าเสียงมาระหว่างนั้นยกเลิกรอ ปล่อยให้
+    // isBotSpeaking() ตัดสินตามปกติ ถ้าครบเวลาแล้วยังเงียบจริงๆ ถึงค่อยปลด
     //
     // timeout ที่เหลือ (ยืดเป็น GREET_MIC_MUTE_TIMEOUT_MS ยาวขึ้นมากจาก 4s) มีไว้กันค้างถาวรอย่างเดียว
     // จริงๆ (เช่น turn_complete เองก็ไม่มา ไม่ใช่แค่ audio ไม่มา) ยอมให้ผู้ใช้รอเงียบนานกว่าเดิมดีกว่า
@@ -338,6 +351,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     let greetMicMuted = options?.greetFirst === true;
     let receivedAudioForGreetTurn = false;
     let greetMicMuteTimer: ReturnType<typeof setTimeout> | null = null;
+    let greetTurnCompleteGraceTimer: ReturnType<typeof setTimeout> | null = null;
     const clearGreetMicMute = (reason: string) => {
       if (!greetMicMuted) return;
       logWake("greet_mic_mute_cleared", reason);
@@ -345,6 +359,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       if (greetMicMuteTimer) {
         clearTimeout(greetMicMuteTimer);
         greetMicMuteTimer = null;
+      }
+      if (greetTurnCompleteGraceTimer) {
+        clearTimeout(greetTurnCompleteGraceTimer);
+        greetTurnCompleteGraceTimer = null;
       }
     };
     if (greetMicMuted) {
@@ -655,13 +673,16 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         if (msg.type === "transcript" && msg.text) {
           setTranscript((prev) => prev + msg.text);
         } else if (msg.type === "turn_complete") {
-          // สัญญาณ "รู้แน่ชัด" อันที่สอง (นอกจาก isBotSpeaking()) สำหรับปลด greetMicMuted — backend
-          // แจ้งจบเทิร์นแล้วแต่ไม่เคยมี ArrayBuffer (เสียง) มาเลยสักก้อนตลอดเทิร์นนี้ (ดู
-          // receivedAudioForGreetTurn ต้น connect()) แปลว่า Gemini จบ turn แบบไม่มีคำตอบเสียงจริงๆ
-          // (เช่น ตอบเป็นข้อความล้วน หรือ error กลางทาง) ไม่ใช่แค่ buffer/เน็ตช้าอยู่ — ปลอดภัยเปิดไมค์
-          // คืนได้ทันที ไม่ต้องรอ timeout กันค้างตัวยาว
-          if (greetMicMuted && !receivedAudioForGreetTurn) {
-            clearGreetMicMute("turn_complete_no_audio");
+          // ไม่ปลด greetMicMuted ทันทีอีกต่อไป (ดูคอมเมนต์ยาวต้น connect() — เจอจริงว่า turn_complete
+          // มาไวกว่าเสียงจริงมาก ปลดทันทีเลยเปิดไมค์ค้างระหว่างที่เสียงกำลังจะตามมา) แค่ "รอผ่อนผัน"
+          // ก่อน ถ้าไม่มีเสียงมาเลยจนครบเวลาค่อยปลดจริง (ArrayBuffer handler ด้านล่างจะยกเลิกให้เองถ้า
+          // เสียงมาระหว่างรอ) กันเรียกซ้อนถ้า turn_complete มาหลายครั้งติดกันด้วย `greetTurnCompleteGraceTimer`
+          if (greetMicMuted && !receivedAudioForGreetTurn && !greetTurnCompleteGraceTimer) {
+            logWake("greet_turn_complete_no_audio_yet", `grace_${GREET_TURN_COMPLETE_GRACE_MS}ms`);
+            greetTurnCompleteGraceTimer = setTimeout(() => {
+              greetTurnCompleteGraceTimer = null;
+              clearGreetMicMute("turn_complete_grace_elapsed_no_audio");
+            }, GREET_TURN_COMPLETE_GRACE_MS);
           }
           // เสียงอาจยังเล่นค้างอยู่ (บัฟไว้ล่วงหน้า) — ปล่อยให้ isBotSpeaking() ใน tick() เป็นคนตัดสิน
           // ว่าจบจริงเมื่อไหร่ ไม่ reset transcript ที่นี่ทันที เผื่อผู้ใช้อยากอ่านคำตอบล่าสุด
@@ -674,9 +695,16 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         }
       } else if (event.data instanceof ArrayBuffer) {
         // มีเสียงจริงมาแล้วสำหรับเทิร์น greet-first นี้ (ต่อให้ยังไม่ถึงคิวเล่นจริงเพราะ jitter
-        // buffer ก็ตาม) — กันไม่ให้ turn_complete ที่ตามมาเข้าใจผิดว่า "จบแบบไม่มีเสียง" (ดู
-        // ws.onmessage เคส turn_complete ด้านบน)
-        if (greetMicMuted) receivedAudioForGreetTurn = true;
+        // buffer ก็ตาม) — ยกเลิกการรอผ่อนผัน (ถ้ากำลังรออยู่) ทันที เสียงกำลังมาจริง ปล่อยให้
+        // isBotSpeaking() เป็นคนตัดสินปลดไมค์ต่อไปตามปกติแทน (ดู ws.onmessage เคส turn_complete)
+        if (greetMicMuted) {
+          receivedAudioForGreetTurn = true;
+          if (greetTurnCompleteGraceTimer) {
+            logWake("greet_turn_complete_grace_cancelled", "audio_arrived");
+            clearTimeout(greetTurnCompleteGraceTimer);
+            greetTurnCompleteGraceTimer = null;
+          }
+        }
         enqueueAudio(event.data);
       }
     };
