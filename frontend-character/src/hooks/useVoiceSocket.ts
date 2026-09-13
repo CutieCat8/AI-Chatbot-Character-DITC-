@@ -25,6 +25,15 @@ const LISTENING_HANGOVER_MS = 900;
 // แว้บหาย) ตั้งค่าไว้เผื่อเยอะกว่าช่องว่างจริงที่เจอมาก (7-90ms) เพราะไม่กระทบความไวของบทสนทนา
 // (ผู้ใช้ไม่เห็นหน้า listening/thinking ช้าลง — คุมแค่ตอนแมวพูดจบแล้วเท่านั้น)
 const BOT_SPEECH_END_HANGOVER_MS = 700;
+// เจอบั๊กจริง (2026-09-14, เจ้าของงานชี้จากหลักฐาน log 2026-09-08 เดิม): ช่องว่างจริงกลางเทิร์นเดียวกัน
+// (7-90ms ตามที่วัดได้ตอนแก้บั๊กหน้าโกรธ) ตัว BOT_SPEECH_END_HANGOVER_MS ข้างบนคุมแค่ UI (tick())
+// เท่านั้น — การ mute ไมค์จริงใน onaudioprocess อ่าน isBotSpeaking() ดิบๆ โดยตรง ไม่ผ่าน hangover เลย
+// แปลว่าทุกช่องว่างเล็กๆ ระหว่างก้อนเสียง ไมค์จะกระพริบเปิดสั้นๆ ระหว่างที่แมวยังพูดไม่จบจริง — ถ้าไม่มี
+// AEC (หรือ AEC ตามไม่ทันช่องว่างสั้นขนาดนี้) เสียงแมวเองที่หลุดเข้าไมค์ช่วงกระพริบนั้นจะถูกส่งเป็น
+// speech_start ของจริงให้ Gemini ซ้ำๆ ตลอดทั้งเทิร์น น่าจะเป็นสาเหตุจริงของอาการพูดวนไม่หยุด ใช้ค่า
+// เดียวกับ BOT_SPEECH_END_HANGOVER_MS ตรงๆ (ปรากฏการณ์เดียวกัน มีหลักฐานรองรับค่าเดียวกันอยู่แล้ว ไม่
+// ต้องคิดค่าใหม่) — ดู onaudioprocess ที่ใช้จริง
+const MIC_MUTE_HANGOVER_MS = BOT_SPEECH_END_HANGOVER_MS;
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
 // เผื่อ greet_first ค้างจริงๆ แบบผิดปกติ (ไม่มีทั้งเสียงแมวพูดและไม่มี turn_complete เลย — ดู
 // คอมเมนต์เต็มที่ connect()) ยาวไว้ก่อน (2026-09-14 ปรับจาก 4s เป็น 18s ตามคำสั่งเจ้าของงาน — ยอมให้
@@ -511,6 +520,9 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     // log ตอน "เปลี่ยนสถานะ" (mute ใหม่ / เลิก mute) พร้อมเหตุผลตอนนั้น เทียบกับ isBotSpeaking()/
     // greetMicMuted จริงตอนที่เปลี่ยน
     let micMuteLogState: string | null = null;
+    // เวลา (performance.now()) ล่าสุดที่เห็น isBotSpeaking()===true — null แปลว่ายังไม่เคยเห็นเลยใน
+    // การเชื่อมต่อรอบนี้ ใช้คำนวณ hangover สำหรับ "ยังนับว่าแมวพูดอยู่" (ดู MIC_MUTE_HANGOVER_MS)
+    let lastBotSpeakingAt: number | null = null;
 
     micProcessor.onaudioprocess = (e) => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -518,11 +530,23 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
 
       // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด รวมถึงช่วงพิเศษ
       // greetMicMuted (รอแมวเริ่มพูดทักทายจริงหลัง wake-word — ดูคอมเมนต์ที่ต้น connect())
-      const botSpeakingNow = isBotSpeaking();
-      const muteReason = botSpeakingNow && greetMicMuted
+      //
+      // ห้ามอ่าน isBotSpeaking() ดิบๆ ตรงนี้แล้วตัดสิน mute ทันที (ดู MIC_MUTE_HANGOVER_MS ด้านบน
+      // ไฟล์ — ช่องว่างจริงกลางเทิร์นเดียวกัน 7-90ms จะทำให้ไมค์กระพริบเปิดตามไปด้วย) ต้องผ่าน hangover
+      // เหมือนที่ tick() ทำกับ UI ก่อน — เห็น !isBotSpeaking() ต่อเนื่องครบ MIC_MUTE_HANGOVER_MS จริงๆ
+      // ถึงจะยอมเปิดไมค์ ไม่ใช่แค่เฟรมเดียวที่เห็นช่องว่าง
+      const now = performance.now();
+      const botSpeakingRaw = isBotSpeaking();
+      if (botSpeakingRaw) lastBotSpeakingAt = now;
+      const botSpeakingWithHangover =
+        botSpeakingRaw || (lastBotSpeakingAt !== null && now - lastBotSpeakingAt < MIC_MUTE_HANGOVER_MS);
+
+      const muteReason = botSpeakingWithHangover && greetMicMuted
         ? "bot_speaking+greet_pending"
-        : botSpeakingNow
-          ? "bot_speaking"
+        : botSpeakingWithHangover
+          ? botSpeakingRaw
+            ? "bot_speaking"
+            : "bot_speaking_hangover"
           : greetMicMuted
             ? "greet_pending"
             : null;
@@ -531,7 +555,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         micMuteLogState = muteReason;
       }
 
-      if (botSpeakingNow || greetMicMuted) {
+      if (botSpeakingWithHangover || greetMicMuted) {
         // ถ้าเพิ่งพูดค้างอยู่ตอนโดน mute (เช่น เผลอพูดคาบเกี่ยวจังหวะที่เสียงแมวเริ่มเล่นจริงหลัง
         // jitter buffer 1.5s ซึ่ง isBotSpeaking() ยังไม่ทันขึ้น true) ต้องปิด activity ให้ Gemini
         // ทันทีตรงนี้ ไม่งั้น wasSpeechRef ค้างเป็น true ข้ามรอบ mute พอเปิดไมค์กลับมาแล้วผู้ใช้เริ่ม
