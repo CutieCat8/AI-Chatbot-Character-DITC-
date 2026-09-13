@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -248,10 +249,21 @@ async def voice_ws(websocket: WebSocket) -> None:
                 # อันตาย session ต้อง reconnect ทิ้ง resumption handle ทั้งที่ผู้ใช้แค่ไม่ได้คำทักทาย
                 # ควรแค่เงียบแล้วรอผู้ใช้พูดเองตามปกติแทน)
                 greet_pending["active"] = True
+                # diagnostic ชั่วคราว (2026-09-14) — เจ้าของงานทดสอบจริง 10 รอบ พบว่า 7/10 รอบแมวไม่
+                # เริ่มพูดทักทายเลยภายใน 4s (ดู frontend GREET_MIC_MUTE_TIMEOUT_MS/wakeLog) ไม่รู้ว่า
+                # send_client_content ส่งไม่สำเร็จ (คน catch ด้านล่างจับได้), Gemini เงียบไปเฉยๆ,
+                # หรือ Gemini ตอบมาจริงแต่ไม่ใช่เสียง — log timestamp ตรงนี้เทียบกับ log ใน
+                # gemini_to_browser (tag "[greet_diag]") ดูว่าเกิดอะไรขึ้นจริงช่วงรอ
+                greet_first_sent_at = time.monotonic()
+                logger.info("[greet_diag] greet_first: เริ่มส่ง send_client_content")
                 try:
                     await session.send_client_content(
                         turns=types.Content(role="user", parts=[types.Part(text=GREET_FIRST_MESSAGE)]),
                         turn_complete=True,
+                    )
+                    logger.info(
+                        "[greet_diag] greet_first: send_client_content ส่งสำเร็จ (ใช้เวลา %.3fs)",
+                        time.monotonic() - greet_first_sent_at,
                     )
                 except Exception:
                     logger.exception("voice_ws: greet_first ส่งไม่สำเร็จ ปล่อยผ่านให้ผู้ใช้พูดเองตามปกติ")
@@ -275,6 +287,23 @@ async def voice_ws(websocket: WebSocket) -> None:
         loop = asyncio.get_running_loop()
         while True:
             async for response in session.receive():
+                if greet_pending["active"]:
+                    # diagnostic ชั่วคราว (2026-09-14, คู่กับ log ที่ greet_first branch ใน
+                    # browser_to_gemini tag เดียวกัน "[greet_diag]") — ดูให้ชัดว่า response แต่ละตัว
+                    # ที่ได้จาก Gemini ระหว่างรอ greet-first มีอะไรบ้าง (เสียง/tool call/transcript/
+                    # turn_complete) จำกัด log แค่ช่วง greet_pending active เท่านั้น กันสแปม log ตอน
+                    # คุยจริงปกติ
+                    logger.info(
+                        "[greet_diag] response: has_data=%s data_len=%s tool_call=%s "
+                        "transcription=%r turn_complete=%s",
+                        response.data is not None,
+                        len(response.data) if response.data is not None else None,
+                        [fc.name for fc in response.tool_call.function_calls] if response.tool_call else None,
+                        response.server_content.output_transcription.text
+                        if response.server_content and response.server_content.output_transcription
+                        else None,
+                        bool(response.server_content and response.server_content.turn_complete),
+                    )
                 if response.session_resumption_update and response.session_resumption_update.resumable:
                     # เก็บ handle ล่าสุดไว้ตลอด session (อัปเดตทุกครั้งที่ Gemini ส่งมาใหม่ ไม่ใช่แค่
                     # ครั้งเดียวตอนต่อ) ต้องเช็ค resumable ด้วย — ถ้า false แปลว่า ณ จุดนี้ resume ไม่ได้
