@@ -293,16 +293,24 @@ async def voice_ws(websocket: WebSocket) -> None:
                     # ที่ได้จาก Gemini ระหว่างรอ greet-first มีอะไรบ้าง (เสียง/tool call/transcript/
                     # turn_complete) จำกัด log แค่ช่วง greet_pending active เท่านั้น กันสแปม log ตอน
                     # คุยจริงปกติ
+                    # เพิ่ม generation_complete/turn_complete_reason/interaction_status (2026-09-14 —
+                    # เจ้าของงานสงสัยว่า turn_complete ที่มาไวมาก ~1.3s ก่อนเสียงจริง ~10s เป็นของ
+                    # greet turn จริงหรือเปล่า) — SDK เอกสารบอกว่า turn_complete ปกติต้องมาช้ากว่า
+                    # generation_complete เสมอ (รอ "playback เสร็จ" ก่อน) ถ้า log เห็น turn_complete=True
+                    # ตอนที่ generation_complete ยังไม่ true เลย น่าจะยืนยันได้ว่าเป็นคนละ turn จริง
+                    sc = response.server_content
                     logger.info(
                         "[greet_diag] response: has_data=%s data_len=%s tool_call=%s "
-                        "transcription=%r turn_complete=%s",
+                        "transcription=%r turn_complete=%s generation_complete=%s "
+                        "turn_complete_reason=%s interaction_status=%s",
                         response.data is not None,
                         len(response.data) if response.data is not None else None,
                         [fc.name for fc in response.tool_call.function_calls] if response.tool_call else None,
-                        response.server_content.output_transcription.text
-                        if response.server_content and response.server_content.output_transcription
-                        else None,
-                        bool(response.server_content and response.server_content.turn_complete),
+                        sc.output_transcription.text if sc and sc.output_transcription else None,
+                        bool(sc and sc.turn_complete),
+                        getattr(sc, "generation_complete", None) if sc else None,
+                        getattr(sc, "turn_complete_reason", None) if sc else None,
+                        getattr(sc, "interaction_status", None) if sc else None,
                     )
                 if response.session_resumption_update and response.session_resumption_update.resumable:
                     # เก็บ handle ล่าสุดไว้ตลอด session (อัปเดตทุกครั้งที่ Gemini ส่งมาใหม่ ไม่ใช่แค่
