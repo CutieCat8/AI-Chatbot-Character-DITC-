@@ -303,24 +303,32 @@ export default function CatFace({
 
 /* ------------------------------------------------------------------- hooks */
 
-/** กระพริบตาเป็นช่วง ๆ — `rate` ยิ่งน้อยยิ่งกระพริบถี่ */
+/**
+ * กระพริบตาเป็นช่วง ๆ — `rate` ยิ่งน้อยยิ่งกระพริบถี่
+ *
+ * เคยมีบั๊กตาค้างปิด (เจอจริง 2026-09-14): timeout ตัวในที่สั่ง `setBlink(false)` (ปิดตาอยู่ 110ms
+ * ก่อนลืมตา) ไม่เคยถูกเก็บ ref ไว้เลย มีแค่ timeout ตัวนอก (รอบก่อนกระพริบ) ที่ถูก clear ตอน cleanup
+ * — ถ้า `enabled`/`rate` เปลี่ยน (เช่น สลับ state ระหว่างคุย) ระหว่างที่ตาปิดอยู่พอดี (ช่วง 110ms
+ * นั้น) cleanup จะ set `cancelled=true` แล้ว timeout ตัวในที่ค้างอยู่จะเห็น cancelled=true แล้ว
+ * return ทิ้งโดยไม่เรียก setBlink(false) เลย — ตาเลยค้างปิดจนกว่าจะถึงรอบกระพริบถัดไปของ effect
+ * ใหม่ (อีก 2.5-6 วินาที) ถึงจะแก้เอง — แก้โดยเก็บ ref ทั้ง 2 timeout แล้ว reset blink ตรงๆ ใน
+ * cleanup แทนที่จะพึ่ง flag `cancelled` เช็คใน callback ที่อาจไม่ถูกเรียกเลย
+ */
 export function useBlink({ enabled = true, rate = 1 }: { enabled?: boolean; rate?: number } = {}): boolean {
   const [blink, setBlink] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!enabled) {
       setBlink(false);
       return;
     }
-    let cancelled = false;
     const schedule = () => {
       const gap = (2500 + Math.random() * 3500) * rate;
-      timer.current = setTimeout(() => {
-        if (cancelled) return;
+      openTimer.current = setTimeout(() => {
         setBlink(true);
-        setTimeout(() => {
-          if (cancelled) return;
+        closeTimer.current = setTimeout(() => {
           setBlink(false);
           schedule();
         }, 110);
@@ -328,8 +336,9 @@ export function useBlink({ enabled = true, rate = 1 }: { enabled?: boolean; rate
     };
     schedule();
     return () => {
-      cancelled = true;
-      if (timer.current) clearTimeout(timer.current);
+      if (openTimer.current) clearTimeout(openTimer.current);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+      setBlink(false); // กันตาค้างปิดถ้า cleanup เกิดกลางช่วงหลับตา (ดูคอมเมนต์ด้านบน)
     };
   }, [enabled, rate]);
 
