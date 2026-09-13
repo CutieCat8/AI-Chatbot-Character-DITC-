@@ -108,6 +108,9 @@ export function useWakeWord({
 
     let disposed = false;
     let fatalError = false;
+    // true ทันทีที่ตรวจเจอคำปลุก — กันไม่ให้ scheduleRestart() รีสตาร์ต recognizer ตัวนี้ต่อ (ดู
+    // เหตุผลเต็มที่คอมเมนต์ใน onresult ด้านล่าง เรื่อง race แย่งไมค์กับ voice.connect())
+    let suspended = false;
     let restartTimer: ReturnType<typeof setTimeout> | null = null;
     const target = normalize(phrase);
     const recognition = new Ctor();
@@ -116,7 +119,7 @@ export function useWakeWord({
     recognition.lang = lang;
 
     const scheduleRestart = () => {
-      if (disposed || fatalError) return;
+      if (disposed || fatalError || suspended) return;
       restartTimer = setTimeout(() => {
         if (disposed || fatalError) return;
         try {
@@ -141,7 +144,21 @@ export function useWakeWord({
           const now = performance.now();
           if (now - lastDetectedAtRef.current > DETECTION_COOLDOWN_MS) {
             lastDetectedAtRef.current = now;
+            // เจอบั๊กจริง (2026-09-14): เดิม onDetected() เรียก voice.connect() ที่ขอไมค์ใหม่ด้วย
+            // getUserMedia แทบจะทันที แต่ recognizer ตัวนี้ (ยังถือไมค์อยู่) จะถูก abort() ก็ต่อเมื่อ
+            // `enabled` prop เปลี่ยนเป็น false ผ่าน React state (setConnectionState -> re-render ->
+            // effect cleanup) เท่านั้น — รอบนั้นช้ากว่า getUserMedia ที่ตามมาเกือบจะทันที บางทีเลย
+            // แย่งไมค์กันจริง ทำให้ transcript ขึ้นถูกแต่ voice.connect() ล้มเหลว/เงียบ ต้องพูดซ้ำรอบ
+            // สองถึงจะติด (รอบแรก recognizer ตัวเก่าคายไมค์ไปแล้วจริง ๆ) — แก้โดย abort() ทันทีตรงนี้
+            // เลยแบบ synchronous ก่อนเรียก callback แทนที่จะรอ React round-trip
+            suspended = true;
+            try {
+              recognition.abort();
+            } catch {
+              // abort() ไม่โยน error ปกติ แต่กันไว้เผื่อ browser implementation แปลกๆ ไม่ต้อง handle ซ้ำ
+            }
             callbackRef.current();
+            return;
           }
         }
       }
