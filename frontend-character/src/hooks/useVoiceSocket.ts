@@ -26,9 +26,11 @@ const LISTENING_HANGOVER_MS = 900;
 // (ผู้ใช้ไม่เห็นหน้า listening/thinking ช้าลง — คุมแค่ตอนแมวพูดจบแล้วเท่านั้น)
 const BOT_SPEECH_END_HANGOVER_MS = 700;
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
-// เผื่อ greet_first ล้มเหลวเงียบๆ (backend มี try/except กันไว้อยู่แล้ว — ดู routers/voice.py) ไม่งั้น
-// greetMicMuted ค้าง true ตลอดไป ไมค์ไม่มีวันเปิดฟังจริงเลย แย่กว่าบั๊กเดิม (ดูคอมเมนต์ที่ connect())
-const GREET_MIC_MUTE_TIMEOUT_MS = 4_000;
+// เผื่อ greet_first ค้างจริงๆ แบบผิดปกติ (ไม่มีทั้งเสียงแมวพูดและไม่มี turn_complete เลย — ดู
+// คอมเมนต์เต็มที่ connect()) ยาวไว้ก่อน (2026-09-14 ปรับจาก 4s เป็น 18s ตามคำสั่งเจ้าของงาน — ยอมให้
+// ผู้ใช้รอเงียบนานกว่าเดิม ดีกว่าเสี่ยงเปิดไมค์ก่อนเวลาแล้วแมวพูดวนเอง) เป็น "กันค้างถาวร" เท่านั้น
+// ไม่ใช่ตัวตัดสินปกติว่าเมื่อไหร่ปลอดภัยเปิดไมค์ (นั่นผูกกับ isBotSpeaking()/turn_complete-ไม่มีเสียง)
+const GREET_MIC_MUTE_TIMEOUT_MS = 18_000;
 
 // ⚠️ ทดลองแก้บั๊ก "เสียงติ๊ก/ป็อบแทรกระหว่างแมวพูด" (2026-09-08) — ยังไม่ยืนยันด้วยอุปกรณ์จริง/หูจริง
 // ห้ามเชื่อว่าหายแล้วจนกว่าจะรัน docs/click-noise-manual-test-plan.md บนแท็บเล็ตจริง (ดู CLAUDE.md)
@@ -310,30 +312,40 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     //
     // แก้รอบสอง (2026-09-14 หลังทดสอบจริง 10 รอบ — เจ้าของงานทัก): เดิมผูก unmute ไว้กับ setTimeout
     // ตายตัว 4s เพียวๆ ผิดหลักการ เพราะ "ถึงเวลาที่ตั้งไว้แล้ว" ไม่ได้แปลว่า "ปลอดภัยที่จะเปิดไมค์แล้ว"
-    // จริงๆ — ถ้า Gemini ตอบช้ากว่านั้น (ยังไม่ตัดสินว่าล้มเหลวจริง แค่ buffer/เน็ตช้า) มันจะเปิดไมค์
-    // ทั้งที่ response ยังมาไม่ถึง/กำลังจะมาถึงพอดี เปิดโอกาสให้เสียงแวดล้อมหลุดเข้าไปอีกรอบเหมือนเดิม
-    // ต้องผูก "ปลอดภัยที่จะเปิดไมค์" กับสัญญาณจริงว่าแมวพูดอยู่ (isBotSpeaking()) เท่านั้น — timeout
-    // ที่เหลือมีไว้ "กันค้างถาวร" กรณี greet_first ล้มเหลวจริง (ไม่มี response อะไรเลยจาก Gemini เลย
-    // ไม่ใช่แค่ช้า) เปลี่ยนเป็น "นับถอยหลังใหม่ทุกครั้งที่มี activity จาก Gemini เข้ามา" (transcript
-    // หรือเสียง — ดู ws.onmessage ด้านล่าง) แทนนับครั้งเดียวตายตัว ตราบใดที่ยังมีอะไรไหลเข้ามาเรื่อยๆ
-    // (แปลว่า turn ยังไม่ตาย แค่ยังไม่ถึงคิวเล่นเสียงจริงเพราะ jitter buffer) จะไม่ตัดใจเปิดไมค์ก่อนเวลา
-    // ต่อให้เวลารวมผ่านไปเกิน GREET_MIC_MUTE_TIMEOUT_MS แล้วก็ตาม — เงียบสนิทไม่มี activity อะไรเลย
-    // ต่อเนื่องครบ timeout เท่านั้นถึงจะถือว่าล้มเหลวจริงแล้วเปิดไมค์
+    //
+    // แก้รอบสาม (2026-09-14 หลังทดสอบจริงอีก 5 รอบพร้อม log — เจ้าของงานชี้ตรงจุด): แค่ re-arm timer
+    // ตอนมี activity ยังไม่พอ เพราะ 3/5 รอบที่พังคือ "เงียบสนิทไม่มี activity อะไรเลยจริงๆ" นานเกิน
+    // 4s แล้วค่อยมีเสียงมาทีหลัง (ไม่มี activity ให้ re-arm ระหว่างนั้นเลย) ไมค์เลยเปิดไปก่อนแมวเริ่ม
+    // พูดจริง พอเสียงแมวเล่นออกลำโพงทีหลัง (ไม่มี AEC ก็ยิ่งซ้ำ) ไมค์ที่เปิดอยู่แล้วได้ยินตัวเองพูดวน
+    // ห้ามให้เวลาเป็นตัวตัดสินว่าปลอดภัยเปิดไมค์อีกต่อไป — unmute จริงต้องมาจากสัญญาณ "รู้แน่ชัด" เท่านั้น
+    // สองทาง: (1) isBotSpeaking()===true (แมวพูดออกลำโพงจริง) (2) backend แจ้ง turn_complete มาโดยที่
+    // ไม่มีเสียง (ArrayBuffer) มาเลยสักก้อนตลอด turn นี้ (`receivedAudioForGreetTurn` — ดู ws.onmessage
+    // ด้านล่าง) แปลว่า Gemini จบเทิร์นแบบไม่มีคำตอบเสียงจริง ๆ (เช่น ทักทายเป็นข้อความล้วนไม่มี audio
+    // หรือ error) ไม่ใช่แค่ buffer/เน็ตช้า — ปลอดภัยเปิดไมค์คืนได้ทันทีไม่ต้องรอ
+    //
+    // timeout ที่เหลือ (ยืดเป็น GREET_MIC_MUTE_TIMEOUT_MS ยาวขึ้นมากจาก 4s) มีไว้กันค้างถาวรอย่างเดียว
+    // จริงๆ (เช่น turn_complete เองก็ไม่มา ไม่ใช่แค่ audio ไม่มา) ยอมให้ผู้ใช้รอเงียบนานกว่าเดิมดีกว่า
+    // เสี่ยงเปิดไมค์ก่อนเวลาแล้วแมวพูดวนเอง
     let greetMicMuted = options?.greetFirst === true;
+    let receivedAudioForGreetTurn = false;
     let greetMicMuteTimer: ReturnType<typeof setTimeout> | null = null;
-    const armGreetMicMuteTimeout = () => {
-      if (greetMicMuteTimer) clearTimeout(greetMicMuteTimer);
-      greetMicMuteTimer = setTimeout(() => {
-        // มาถึงจุดนี้ได้แปลว่าเงียบสนิทไม่มี activity อะไรจาก Gemini เลยต่อเนื่องครบเวลาที่ตั้งไว้ —
-        // ถือว่า greet_first ล้มเหลวจริง ไม่ใช่แค่ช้า เปิดไมค์คืนให้ผู้ใช้พูดเองตามปกติ
-        logWake("greet_mic_mute_timeout_fallback", `${GREET_MIC_MUTE_TIMEOUT_MS}ms_no_activity`);
-        greetMicMuted = false;
+    const clearGreetMicMute = (reason: string) => {
+      if (!greetMicMuted) return;
+      logWake("greet_mic_mute_cleared", reason);
+      greetMicMuted = false;
+      if (greetMicMuteTimer) {
+        clearTimeout(greetMicMuteTimer);
         greetMicMuteTimer = null;
-      }, GREET_MIC_MUTE_TIMEOUT_MS);
+      }
     };
     if (greetMicMuted) {
       logWake("greet_mic_mute_start");
-      armGreetMicMuteTimeout();
+      greetMicMuteTimer = setTimeout(() => {
+        // มาถึงจุดนี้ได้แปลว่าไม่มีทั้งเสียงแมวพูดจริงและไม่มี turn_complete ส่งมาเลยตลอดเวลาที่ตั้งไว้
+        // — ถือว่า greet_first ค้าง/ล้มเหลวแบบผิดปกติจริง ไม่ใช่แค่ช้าปกติ เปิดไมค์คืนให้ผู้ใช้พูดเอง
+        greetMicMuteTimer = null;
+        clearGreetMicMute(`timeout_${GREET_MIC_MUTE_TIMEOUT_MS}ms_stuck`);
+      }, GREET_MIC_MUTE_TIMEOUT_MS);
     }
 
     const audioCtx = new AudioContext();
@@ -411,17 +423,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       const speaking = isBotSpeaking();
       setBotSpeaking(speaking);
       if (speaking) {
-        if (greetMicMuted) {
-          // แมวเริ่มพูดทักทายจริงแล้ว (เสียงเริ่มเล่นจริงหลัง jitter buffer) เลิก mute ไมค์พิเศษช่วง
-          // greet-first ได้ — isBotSpeaking() เองจะรับช่วง mute ต่อตามปกติ (half-duplex เดิม) ไม่มี
-          // ช่วงที่ไมค์เปิดค้างระหว่างสองกลไกนี้
-          greetMicMuted = false;
-          logWake("greet_mic_mute_cleared", "bot_started_speaking");
-          if (greetMicMuteTimer) {
-            clearTimeout(greetMicMuteTimer);
-            greetMicMuteTimer = null;
-          }
-        }
+        // แมวเริ่มพูดทักทายจริงแล้ว (เสียงเริ่มเล่นจริงหลัง jitter buffer) เลิก mute ไมค์พิเศษช่วง
+        // greet-first ได้ — isBotSpeaking() เองจะรับช่วง mute ต่อตามปกติ (half-duplex เดิม) ไม่มีช่วง
+        // ที่ไมค์เปิดค้างระหว่างสองกลไกนี้
+        clearGreetMicMute("bot_started_speaking");
         if (catStateRef.current !== "wake") setCatStateSafe("wake");
         setIsThinking(false); // แมวเริ่มพูดจริงแล้ว เลิกนับว่าเป็นช่วงรอคำตอบ
         hasBotSpokenThisTurnRef.current = true; // ยืนยันแล้วว่าเทิร์นนี้แมวได้พูดจริง ไม่ใช่แค่เงียบเฉย ๆ
@@ -501,13 +506,32 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     const hangoverBuffers = Math.max(1, Math.round((SILENCE_HANGOVER_MS / 1000) * audioCtx.sampleRate / BUFFER_SIZE));
     const listeningHangoverBuffers = Math.max(1, Math.round((LISTENING_HANGOVER_MS / 1000) * audioCtx.sampleRate / BUFFER_SIZE));
 
+    // diagnostic ชั่วคราว (2026-09-14) — เจ้าของงานขอให้ตรวจว่า half-duplex ปกติ (isBotSpeaking())
+    // ทำงานจริงระหว่างที่แมวพูดวนเองหรือเปล่า ไม่ log ทุก onaudioprocess (รัวเกินไป ~85ms/ครั้ง) แค่
+    // log ตอน "เปลี่ยนสถานะ" (mute ใหม่ / เลิก mute) พร้อมเหตุผลตอนนั้น เทียบกับ isBotSpeaking()/
+    // greetMicMuted จริงตอนที่เปลี่ยน
+    let micMuteLogState: string | null = null;
+
     micProcessor.onaudioprocess = (e) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
 
       // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด รวมถึงช่วงพิเศษ
       // greetMicMuted (รอแมวเริ่มพูดทักทายจริงหลัง wake-word — ดูคอมเมนต์ที่ต้น connect())
-      if (isBotSpeaking() || greetMicMuted) {
+      const botSpeakingNow = isBotSpeaking();
+      const muteReason = botSpeakingNow && greetMicMuted
+        ? "bot_speaking+greet_pending"
+        : botSpeakingNow
+          ? "bot_speaking"
+          : greetMicMuted
+            ? "greet_pending"
+            : null;
+      if (muteReason !== micMuteLogState) {
+        logWake(muteReason ? "mic_muted" : "mic_open", muteReason ?? undefined);
+        micMuteLogState = muteReason;
+      }
+
+      if (botSpeakingNow || greetMicMuted) {
         // ถ้าเพิ่งพูดค้างอยู่ตอนโดน mute (เช่น เผลอพูดคาบเกี่ยวจังหวะที่เสียงแมวเริ่มเล่นจริงหลัง
         // jitter buffer 1.5s ซึ่ง isBotSpeaking() ยังไม่ทันขึ้น true) ต้องปิด activity ให้ Gemini
         // ทันทีตรงนี้ ไม่งั้น wasSpeechRef ค้างเป็น true ข้ามรอบ mute พอเปิดไมค์กลับมาแล้วผู้ใช้เริ่ม
@@ -602,17 +626,19 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       }
     };
     ws.onmessage = (event) => {
-      // ยังมี activity จาก Gemini เข้ามาเรื่อยๆ ระหว่างรอ greet-first (transcript/เสียง/off_topic
-      // ล้วนนับ) — ยืดเวลา timeout กันค้างออกไปอีก ไม่ใช่ตัดสินว่าล้มเหลวทั้งที่ยังมีอะไรไหลเข้ามาอยู่
-      // (ดูคอมเมนต์เต็มที่ประกาศ greetMicMuted ต้น connect()) ต้องเช็คก่อนว่ายัง muted จริงไหม กัน
-      // เรียก armGreetMicMuteTimeout() เปล่าๆ หลังปลดล็อกไปแล้ว (เช่น แมวเริ่มพูดจริงแล้ว)
-      if (greetMicMuted) armGreetMicMuteTimeout();
-
       if (typeof event.data === "string") {
         const msg = JSON.parse(event.data) as { type: string; text?: string };
         if (msg.type === "transcript" && msg.text) {
           setTranscript((prev) => prev + msg.text);
         } else if (msg.type === "turn_complete") {
+          // สัญญาณ "รู้แน่ชัด" อันที่สอง (นอกจาก isBotSpeaking()) สำหรับปลด greetMicMuted — backend
+          // แจ้งจบเทิร์นแล้วแต่ไม่เคยมี ArrayBuffer (เสียง) มาเลยสักก้อนตลอดเทิร์นนี้ (ดู
+          // receivedAudioForGreetTurn ต้น connect()) แปลว่า Gemini จบ turn แบบไม่มีคำตอบเสียงจริงๆ
+          // (เช่น ตอบเป็นข้อความล้วน หรือ error กลางทาง) ไม่ใช่แค่ buffer/เน็ตช้าอยู่ — ปลอดภัยเปิดไมค์
+          // คืนได้ทันที ไม่ต้องรอ timeout กันค้างตัวยาว
+          if (greetMicMuted && !receivedAudioForGreetTurn) {
+            clearGreetMicMute("turn_complete_no_audio");
+          }
           // เสียงอาจยังเล่นค้างอยู่ (บัฟไว้ล่วงหน้า) — ปล่อยให้ isBotSpeaking() ใน tick() เป็นคนตัดสิน
           // ว่าจบจริงเมื่อไหร่ ไม่ reset transcript ที่นี่ทันที เผื่อผู้ใช้อยากอ่านคำตอบล่าสุด
         } else if (msg.type === "off_topic") {
@@ -623,6 +649,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           setOffTopic(true);
         }
       } else if (event.data instanceof ArrayBuffer) {
+        // มีเสียงจริงมาแล้วสำหรับเทิร์น greet-first นี้ (ต่อให้ยังไม่ถึงคิวเล่นจริงเพราะ jitter
+        // buffer ก็ตาม) — กันไม่ให้ turn_complete ที่ตามมาเข้าใจผิดว่า "จบแบบไม่มีเสียง" (ดู
+        // ws.onmessage เคส turn_complete ด้านบน)
+        if (greetMicMuted) receivedAudioForGreetTurn = true;
         enqueueAudio(event.data);
       }
     };
