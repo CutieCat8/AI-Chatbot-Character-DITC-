@@ -137,6 +137,19 @@
   จริงผูกกับ `isBotSpeaking()` เท่านั้น ส่วน timeout เหลือแค่กันค้างถาวรกรณีเงียบสนิทไม่มี activity
   อะไรจาก Gemini เลย (นับถอยหลังใหม่ทุกครั้งที่มี transcript/เสียงเข้ามา ไม่ใช่นับครั้งเดียว)
 
+  **แก้เพิ่มรอบสี่ (2026-09-14 หลังดู log จริงอีก 5 รอบ — เจ้าของงานวิเคราะห์เองแล้วสั่งแยกทำ):**
+  (1) rebind unmute เข้ากับ `isBotSpeaking()` ให้เข้มขึ้นอีก — เดิม re-arm timer ตอนมี activity ยังไม่
+  พอเพราะบางรอบ "ไม่มี activity อะไรเลยจริงๆ" นาน 4s+ ก่อนเสียงมา เพิ่มสัญญาณที่สองคือ backend ส่ง
+  `turn_complete` มาโดยไม่เคยมีเสียง (ArrayBuffer) มาเลยตลอด turn = ปลดล็อกได้ทันที ไม่ต้องรอ
+  `isBotSpeaking()` timeout กันค้างยืดจาก 4s เป็น 18s (แค่กันค้างถาวรจริงๆ ไม่ใช่ตัวตัดสินปกติอีกแล้ว)
+  (4) เจอบั๊กจริงจาก log: `lastDetectedAtRef` ใน `useWakeWord.ts` init เป็น `0` เทียบกับ
+  `performance.now()` ตรงๆ (นับจาก page load ไม่ใช่จาก session) ถ้าทั้งเซสชันเร็วกว่า cooldown 4s
+  การตรวจจับครั้งแรกสุดของเซสชันจะโดน cooldown เทียมบล็อกไปเงียบๆ แก้เป็น init `-Infinity`
+  ยังตรวจสอบเรื่อง (2) half-duplex ระหว่างแมวพูดจริงมีช่องโหว่ไหม กับ (3) เสียงอะไรที่ Gemini ได้ยินจริง
+  ตอนพูดวน — เพิ่ม diagnostic logging ไว้ (`mic_muted`/`mic_open` ใน wakeLog, `[input_stt_diag]` ฝั่ง
+  backend อ่าน `input_transcription`/`interim_input_transcription` ที่ config ขอไว้อยู่แล้วแต่ไม่เคย
+  log) แต่ยังไม่ได้ข้อสรุป รอผลทดสอบรอบถัดไปพร้อม log ทั้งสองฝั่ง
+
   ส่วนปัญหาคำลงท้าย "จ่ะ/จ๊ะ/จ้า" บางทีไม่ขึ้นใน transcript เลย เป็นข้อจำกัดของ Web Speech API เอง
   (STT accuracy ของ engine) ไม่ใช่บั๊กแอป — ไม่มีทางแก้ที่ layer นี้
 
