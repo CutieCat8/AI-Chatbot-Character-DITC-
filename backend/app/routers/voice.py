@@ -374,6 +374,26 @@ async def voice_ws(websocket: WebSocket) -> None:
                 if response.data is not None:
                     await websocket.send_bytes(response.data)
 
+                # getattr แบบ default None ตลอด — SDK จริงมี field นี้เสมอ (ดู build_config ที่ขอ
+                # input_audio_transcription ไว้) แต่ test double (tests/test_voice_ws_multiturn.py ใช้
+                # SimpleNamespace จำลอง response) ไม่ได้ตั้งค่านี้ไว้ครบทุกฟิลด์ — เข้าถึงตรงๆ จะพัง test
+                input_transcription = getattr(response.server_content, "input_transcription", None) if response.server_content else None
+                interim_input_transcription = (
+                    getattr(response.server_content, "interim_input_transcription", None) if response.server_content else None
+                )
+                if input_transcription or interim_input_transcription:
+                    # diagnostic ชั่วคราว (2026-09-14) — config ขอ input_audio_transcription ไว้อยู่แล้ว
+                    # (ดู build_config) แต่ไม่เคยอ่าน/log field นี้เลยสักครั้งตั้งแต่ทำมา ทั้งที่นี่คือ
+                    # สิ่งที่ Gemini "ได้ยิน" จริงจากเสียงที่ browser ส่งเข้าไป — เจ้าของงานสงสัยว่าตอน
+                    # แมวพูดวนเองไม่หยุด (ตอบเรื่องห้องน้ำ/"I am a student"/"check your order" ทั้งที่พูด
+                    # แค่ "สวัสดี") มีเสียงอะไรถูกส่งเข้า Gemini จริงหรือเปล่า log ตัวนี้จะตอบได้ตรงๆ ว่า
+                    # Gemini ได้ยินอะไร (เสียงแมวเองที่หลุดเข้าไมค์ vs เสียงแวดล้อม vs อย่างอื่น)
+                    logger.info(
+                        "[input_stt_diag] Gemini ได้ยิน: final=%r interim=%r",
+                        input_transcription.text if input_transcription else None,
+                        interim_input_transcription.text if interim_input_transcription else None,
+                    )
+
                 if response.server_content and response.server_content.output_transcription:
                     text_piece = response.server_content.output_transcription.text
                     if text_piece:
