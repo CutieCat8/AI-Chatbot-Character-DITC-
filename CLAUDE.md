@@ -91,120 +91,61 @@
   gate ออกแล้วตามคำสั่งเจ้าของงานตรงๆ (2026-09-13) — ไม่ได้รอผ่านเกณฑ์ทดสอบผู้ใช้จริงตามสโคปเดิม
   ก่อน เป็นการตัดสินใจของเจ้าของงานเอง** overlay diagnostic ย้ายไปอยู่หลัง `?debug=1` แทน
 
-  **greet-first (2026-09-14):** ทดสอบจริงแล้วพบว่าปล่อยให้คำปลุกที่หลุดเข้ามาเป็นคำถามแรกของ
-  บทสนทนาไม่เสถียร (บางทีเงียบไปเลยต้องปลุกใหม่ บางทีโดนตีความว่าเป็นคำถามนอกขอบเขต ตอบ "ผมตอบได้
-  แค่เรื่อง DITC/CAMT" ทั้งที่ผู้ใช้ยังไม่ทันถามอะไรจริง) แก้ด้วยกลไก greet-first: ตอน wake-word ตรวจ
-  จับสำเร็จ `useVoiceSocket.connect({ greetFirst: true })` จะส่ง `{"type":"greet_first"}` ให้ backend
-  สั่ง Gemini ทักทาย/แนะนำตัวเองทันทีด้วย synthetic turn (`GREET_FIRST_MESSAGE` ใน
-  `routers/voice.py`) แทนที่จะรอตีความเสียงจริงของผู้ใช้ — ปุ่ม "เริ่มคุย" ไม่ส่ง flag นี้ พฤติกรรม
-  เดิมทุกประการ มี `greet_pending` guard กัน flag_off_topic ผิดตัวตอน synthetic turn ด้วย (เคสที่
-  โมเดลตีความ trigger เองเป็นคำถามนอกขอบเขต) — **ยังไม่เคยทดสอบกับ Gemini Live จริงเลยสักครั้ง**
-  ต้องรัน backend จริงแล้วลองปลุกด้วยเสียงก่อนเชื่อว่าใช้ได้จริง (ห้ามอ้างว่าทดสอบแล้วตามกติกาข้อ 1)
+  **greet-first ผ่าน Gemini — ลองแล้ว เลิกใช้แล้ว (2026-09-14/15, ดูประวัติเต็มด้านล่าง):** เดิมตอนตื่น
+  ด้วยเสียงจะส่ง synthetic turn ให้ Gemini พูดทักทายเองผ่าน `session.send_client_content()` — ไล่แก้
+  บั๊ก "พูดวนไม่หยุด/เทิร์นสองแทรกก่อนเทิร์นแรกจบ/ตอบช้าไม่คงที่" มา **6 รอบเต็ม** ก่อนเจอ root cause
+  จริงจาก docstring ของ SDK เอง (`AsyncSession.send_client_content` ใน `google-genai`):
 
-  **สองบั๊กแยกกันที่เคยไล่แก้ปนกัน (2026-09-14) — เจ้าของงานสั่งให้แยกวินิจฉัยให้ขาดหลังทดสอบแล้ว
-  ยังไม่ดีขึ้น 3 รอบติด:**
+  > "Caution: Interleaving `send_client_content` and `send_realtime_input` in the same conversation
+  > is not recommended and can lead to unexpected results."
 
-  ก่อนแก้รอบนี้เพิ่ม `lib/wakeLog.ts` (`window.__wakeLog()` + overlay realtime ใต้ `?debug=1`) —
-  ทุก step ของ flow ปลุก->ปล่อยไมค์->connect() มี timestamp เทียบกันได้ ไม่ต้องเดาจากคำบอกเล่าซ้ำๆ
+  สถาปัตยกรรมเดิมทำแบบนั้นเป๊ะ — ส่ง synthetic text turn (`send_client_content`) แล้วเสียงจริงจากไมค์
+  ก็เริ่มส่งเข้า Gemini ทาง `send_realtime_input` แทบจะทันทีหลังจากนั้น เอกสารเตือนตรงๆ ว่าผลลัพธ์คาด
+  เดาไม่ได้ — ตรงกับทุกอาการที่เจอมาตลอด (จูน timing เท่าไหร่ก็ไม่นิ่ง เพราะปัญหาไม่ได้อยู่ที่ timing)
 
-  1. **ปลุกไม่ติดบางครั้งทั้งที่ transcript ตรง ต้องพูดซ้ำ (แย่งไมค์):** วินิจฉัยรอบก่อนถูกทิศแต่แก้
-     ไม่ครบ — `recognition.abort()` เป็นแค่ "สั่งให้เลิก" ไม่ได้คืนไมค์ทันทีที่เรียก (คืนจริงตอน
-     `onend` ยิง) เรียก `abort()` แล้วไปต่อ `onDetected()`/`connect()` ทันทีเลยยังชนกันได้อยู่ แค่
-     ช่องแคบลง แก้เป็น state machine จริงใน `useWakeWord.ts`: `listening` -> (เจอคำปลุก) ->
-     `releasing_mic` (`abort()` แล้ว **รอ** `onend` ยืนยันไมค์คืนจริงก่อน มี timeout fallback กันค้าง)
-     -> เรียก `onDetected()` ต่อเมื่อ `onend` ยืนยันแล้วเท่านั้น คู่กับ guard กันเรียก `connect()`
-     ซ้อนใน `useVoiceSocket.ts` (`connectionStateRef`)
-  2. **ตอบ "ผมตอบได้แค่เรื่อง DITC/CAMT" ใส่คำว่า "สวัสดี" เฉยๆ (คนละเรื่องกับบั๊กที่ 1 เลย ไม่ใช่
-     wake-word):** ไม่ใช่ปัญหา prompt เป็นหลัก (ข้อยกเว้นทักทายมีอยู่แล้วในกติกาก่อนรอบนี้) — root
-     cause จริงคือไมค์ตัวใหม่ (`getUserMedia` ใน `connect({greetFirst:true})`) เริ่มจับเสียงทันทีที่
-     เปิดสำเร็จ ไม่รอแมวเริ่มพูดทักทายก่อน เสียงแวดล้อมช่วงนั้น (RMS ผ่าน threshold ต่ำ 0.02) โดนส่ง
-     เป็น `speech_start` จริงให้ backend ซึ่งใช้ `speech_start` เคลียร์ `greet_pending` guard ก่อน
-     เวลาอันควร พอเสียงแวดล้อมนั้นโดน Gemini ตีความว่านอกขอบเขต ก็เรียก `flag_off_topic` ได้ปกติ
-     เพราะ guard หายไปแล้ว — แก้โดย mute ไมค์ (กลไกเดียวกับ half-duplex ตอนแมวพูด) ตั้งแต่
-     `connect({greetFirst:true})` จนกว่าแมวจะเริ่มพูดทักทายจริง มี timeout fallback เผื่อ greet_first
-     ล้มเหลวเงียบๆ (`GREET_MIC_MUTE_TIMEOUT_MS` ใน `useVoiceSocket.ts`) นอกจากนี้ยังขยายข้อยกเว้นให้
-     ครอบคลุม small talk สั้นๆทั่วไป (ไม่ใช่แค่ทักทายเปล่าๆ) และบังคับตอบภาษาไทยเป็นค่าเริ่มต้นเว้นแต่
-     ผู้ใช้พูดภาษาอื่นก่อน (`SYSTEM_INSTRUCTION` ใน `routers/voice.py`)
+  **สิ่งที่ตัดออกไปแล้วว่า "ไม่ใช่" ต้นเหตุ (ตรวจสอบจริงด้วย log ทุกข้อ ไม่ใช่แค่เดา):**
+  - **prompt** — ข้อยกเว้นทักทาย/small-talk ใน `SYSTEM_INSTRUCTION` ถูกต้องอยู่แล้ว ปัญหาไม่เคยอยู่ที่นี่
+  - **echo/hallucination** — `[input_stt_diag]` (อ่าน `input_transcription` ที่ config ขอไว้อยู่แล้ว
+    แต่ไม่เคย log) ยืนยันว่า Gemini ได้ยินคำพูดจริงของผู้ใช้ทุกครั้ง ไม่ใช่เสียงตัวเองที่หลุดเข้าไมค์
+  - **AEC** — เพิ่ม `echoCancellation`/`noiseSuppression`/`autoGainControl` ใน `getUserMedia` แล้ว
+    (เดิมไม่ได้ขอเลยสักตัว) ไม่ได้ช่วยอะไรเลย
+  - **จังหวะปลดไมค์ (mic-release timing)** — ไล่แก้มา 5 รูปแบบ (mic race ตอนตื่น, hangover กันไมค์
+    กระพริบ, grace period หลัง turn_complete) อาการยังเหมือนเดิมไม่ว่าจะปลดไมค์ถูกจังหวะจริงหรือผ่าน
+    grace timeout — พิสูจน์ว่าจังหวะปลดไมค์ไม่ใช่ตัวแปร
+  - **timeout ต่างๆ** (4s/18s/grace 3s) — ปรับเท่าไหร่ก็ไม่ทำให้นิ่ง เพราะแก้ผิดจุด
+  - **sample rate / mismatch อื่นๆ ของ audio pipeline** — ตรวจแล้วตรงกันทุกจุด ไม่ใช่สาเหตุ
+  - **`?nogreet=1` A/B test** — ปิด greet-first ทั้งหมดแล้วอาการ "พูดวน" ที่เคยสงสัยว่าเกี่ยวกันยัง
+    เกิดเหมือนเดิม (ภายหลังพบว่านั่นเป็นคนละเรื่อง — ดูหัวข้อถัดไป ไม่ใช่บั๊ก แค่ transcript ไม่มีจุดแบ่ง
+    เทิร์น) ยืนยันว่า "พูดวน" ไม่เกี่ยวกับ greet-first เลย แต่ปัญหาที่แท้จริงของ greet-first (เทิร์นสอง
+    แทรกก่อนเทิร์นแรกจบ/ตอบช้าไม่คงที่) คือเรื่อง interleaving ตามที่ SDK เตือนไว้
 
-  **ทั้งสองข้อยังไม่เคยทดสอบกับอุปกรณ์จริงว่าแก้ได้จริงหรือเปล่า** (ห้ามอ้างว่าทดสอบแล้วตามกติกาข้อ 1)
-  ต้องรัน backend จริงแล้วลองปลุกด้วยเสียงพร้อมเก็บ `window.__wakeLog()` ถ้ายังไม่ดีขึ้น
+  **แก้แล้ว (2026-09-15):** ตัดกลไก greet-first ผ่าน Gemini ออกทั้งชุด — ไม่ส่ง `send_client_content`
+  ให้ Gemini เลยตอนตื่น ใช้ **ไฟล์เสียงทักทายที่อัดไว้ล่วงหน้าแทน** เล่นทันทีที่ `match_detected` (ไม่รอ
+  `ws_open` ด้วยซ้ำ) ผ่าน Web Audio API ตรงๆ ไม่ผ่าน Gemini/session เลยสักครั้ง — เล่นผ่าน `outputGain`
+  เส้นทางเดียวกับเสียงตอบจริง แล้ว push เข้า `scheduledAudioRef` เหมือนก้อนเสียงปกติ ได้ half-duplex
+  mute (`isBotSpeaking()`) ฟรีจากกลไกเดิมทันที ไม่ต้องเขียน mute state ใหม่เลย (ดู `GREETING_AUDIO_URL`
+  ใน `useVoiceSocket.ts`) **ไฟล์ปัจจุบันเป็น placeholder** (`frontend-character/public/audio/
+  greeting.wav`, 1.2s tone 440Hz) — ต้องอัดเสียงจริงมาแทนที่ก่อนใช้งานจริง (ดู README ในโฟลเดอร์นั้น)
+  หลังแก้: ตัด `greet_pending`/`GREET_FIRST_MESSAGE`/`greet_first` WS message type/`[greet_diag]`
+  ออกจาก backend ทั้งหมด, ตัด `greetMicMuted`/`receivedAudioForGreetTurn`/`greetTurnCompleteGraceTimer`/
+  `GREET_MIC_MUTE_TIMEOUT_MS`/`GREET_TURN_COMPLETE_GRACE_MS`/`?nogreet=1` ออกจาก frontend ทั้งหมด —
+  `connect()` เปลี่ยนจาก `{greetFirst}` เป็น `{playGreeting}` เก็บ `[audio_arrival_diag]`/
+  `[input_stt_diag]` ไว้ (ยังมีประโยชน์ทั่วไป ไม่ผูกกับ greet-first แล้ว) **ยังไม่เคยทดสอบกับอุปกรณ์
+  จริง** (ห้ามอ้างว่าทดสอบแล้วตามกติกาข้อ 1) ต้องรัน backend+frontend จริงแล้วลองปลุกด้วยเสียงก่อนเชื่อ
 
-  **แก้เพิ่มรอบสาม (2026-09-14 หลังดู log จริง 10 รอบ):** เจ้าของงานทักสองข้อว่าแก้ไม่ถูกหลักการ —
-  (1) `getUserMedia` เดิมไม่ได้ขอ `echoCancellation`/`noiseSuppression`/`autoGainControl` เลยสักตัว
-  ทั้งที่มีคอมเมนต์เก่าอ้างเรื่อง AEC มือถือโดยไม่มีหลักฐาน เพิ่มขอครบสามตัวแล้ว ทดสอบบน Chrome
-  เดสก์ท็อป (มี AEC แน่นอน) ก่อนได้เลยเพื่อตัดตัวแปรนี้ออก (2) mute ไมค์ตอน greet-first เดิมผูก unmute
-  กับ `setTimeout` ตายตัว 4s ซึ่งผิดหลักการ (เวลาผ่านไปไม่ได้แปลว่าปลอดภัยเปิดไมค์) เปลี่ยนให้ unmute
-  จริงผูกกับ `isBotSpeaking()` เท่านั้น ส่วน timeout เหลือแค่กันค้างถาวรกรณีเงียบสนิทไม่มี activity
-  อะไรจาก Gemini เลย (นับถอยหลังใหม่ทุกครั้งที่มี transcript/เสียงเข้ามา ไม่ใช่นับครั้งเดียว)
+  **บั๊กแยกกันอีกอันที่เจอระหว่างทาง ไม่เกี่ยวกับ greet-first เลย — เจอสาเหตุ backend logging ไม่ออก
+  (2026-09-14):** ไม่เคยเรียก `logging.basicConfig()` เลยสักที่ในแอป root logger อยู่ที่ default
+  (WARNING) ทุก `logger.info(...)` ในทั้งโปรเจกต์เลยไม่เคย print ออกมาจริง ที่เห็นมีแต่ SQL echo ของ
+  SQLAlchemy เพราะ `create_engine(echo=True)` set logger ของตัวเองตรงๆ ไม่ผ่าน root แก้แล้ว: เพิ่ม
+  `logging.basicConfig(level=INFO)` ใน `main.py` และปิด SQL echo ออกจาก `APP_DEBUG` (`database.py`,
+  `echo=False` ตรงๆ)
 
-  **แก้เพิ่มรอบสี่ (2026-09-14 หลังดู log จริงอีก 5 รอบ — เจ้าของงานวิเคราะห์เองแล้วสั่งแยกทำ):**
-  (1) rebind unmute เข้ากับ `isBotSpeaking()` ให้เข้มขึ้นอีก — เดิม re-arm timer ตอนมี activity ยังไม่
-  พอเพราะบางรอบ "ไม่มี activity อะไรเลยจริงๆ" นาน 4s+ ก่อนเสียงมา เพิ่มสัญญาณที่สองคือ backend ส่ง
-  `turn_complete` มาโดยไม่เคยมีเสียง (ArrayBuffer) มาเลยตลอด turn = ปลดล็อกได้ทันที ไม่ต้องรอ
-  `isBotSpeaking()` timeout กันค้างยืดจาก 4s เป็น 18s (แค่กันค้างถาวรจริงๆ ไม่ใช่ตัวตัดสินปกติอีกแล้ว)
-  (4) เจอบั๊กจริงจาก log: `lastDetectedAtRef` ใน `useWakeWord.ts` init เป็น `0` เทียบกับ
-  `performance.now()` ตรงๆ (นับจาก page load ไม่ใช่จาก session) ถ้าทั้งเซสชันเร็วกว่า cooldown 4s
-  การตรวจจับครั้งแรกสุดของเซสชันจะโดน cooldown เทียมบล็อกไปเงียบๆ แก้เป็น init `-Infinity`
-  ยังตรวจสอบเรื่อง (2) half-duplex ระหว่างแมวพูดจริงมีช่องโหว่ไหม กับ (3) เสียงอะไรที่ Gemini ได้ยินจริง
-  ตอนพูดวน — เพิ่ม diagnostic logging ไว้ (`mic_muted`/`mic_open` ใน wakeLog, `[input_stt_diag]` ฝั่ง
-  backend อ่าน `input_transcription`/`interim_input_transcription` ที่ config ขอไว้อยู่แล้วแต่ไม่เคย
-  log) แต่ยังไม่ได้ข้อสรุป รอผลทดสอบรอบถัดไปพร้อม log ทั้งสองฝั่ง
-
-  **ข้อ (2) มีคำตอบแล้ว ไม่ต้องรอ log ยืนยัน — ใช้หลักฐานเดิมจากตอนแก้บั๊กหน้าโกรธ 2026-09-08 ได้เลย:**
-  ตอนนั้นวัดจริงแล้วว่ามีช่องว่างจริง 7-90ms กลางเทิร์นเดียวกันระหว่างก้อนเสียง แก้ด้วย
-  `BOT_SPEECH_END_HANGOVER_MS=700` แต่ hangover นั้นคุมแค่ UI (`tick()`) เท่านั้น — การ mute ไมค์จริง
-  ใน `onaudioprocess` อ่าน `isBotSpeaking()` ดิบๆ ไม่ผ่าน hangover เลย ไมค์จึงกระพริบเปิดตามทุกช่องว่าง
-  แม้แมวยังพูดไม่จบ (ไม่มี AEC ก็ยิ่งเสี่ยงได้ยินเสียงตัวเอง) แก้แล้ว: เพิ่ม `MIC_MUTE_HANGOVER_MS`
-  (ใช้ค่าเดียวกับ `BOT_SPEECH_END_HANGOVER_MS`) คุมการ mute ไมค์ด้วย ต้องเห็น `!isBotSpeaking()`
-  ต่อเนื่องครบ hangover จริงๆ ถึงจะยอมเปิดไมค์ ไม่ใช่แค่เฟรมเดียว — `mic_muted`/`mic_open` log แยก
-  แสดง `bot_speaking` vs `bot_speaking_hangover` ให้ตรวจสอบรอบหน้าได้ว่าไม่กระพริบแล้วจริง
-
-  **แก้เพิ่มรอบห้า (2026-09-14 หลังดู log จริง 7 รอบ — เจ้าของงานชี้ว่าสัญญาณที่แนะนำเองรอบก่อนผิด):**
-  สมมติฐานเดิม "turn_complete มาโดยไม่มีเสียงเลย = ปลอดภัยปลดไมค์" **ผิด** — log ยืนยัน 6/7 รอบว่า
-  `turn_complete` ของ greet turn มาไวมาก (~1.3s) ก่อนเสียงจริงจะมาอีก ~10s ถัดมา ปลดทันทีตามสัญญาณเดิม
-  เลยเปิดไมค์ค้างพอดีช่วงที่เสียงกำลังจะรั่วมา แก้เป็น "รอผ่อนผัน" `GREET_TURN_COMPLETE_GRACE_MS=3s`
-  ก่อนปลดจริง (ยกเลิกถ้าเสียงมาระหว่างรอ ปล่อยให้ `isBotSpeaking()` ตัดสินตามปกติ) `GREET_MIC_MUTE_
-  TIMEOUT_MS=18s` ยังเป็นด่านสุดท้ายเหมือนเดิม — **ยังไม่รู้ว่าทำไม turn_complete มาไวขนาดนั้น** เพิ่ม
-  `generation_complete`/`turn_complete_reason`/`interaction_status` เข้า `[greet_diag]` log แล้ว
-  (เอกสาร SDK บอกว่า turn_complete ควรมาหลัง generation_complete เสมอ ถ้า log เห็น turn_complete=True
-  ทั้งที่ generation_complete ยังไม่ true น่าจะยืนยันได้ว่าเป็นคนละ turn จริง) รอ log รอบหน้ายืนยัน
-  ส่วนเรื่องประโยคแรกถูกอ่านซ้ำ/แมวพูดเองทั้งที่ผู้ใช้ยังไม่พูด ต้องรอ `[input_stt_diag]` ที่ยังไม่ได้
-  เก็บมารอบนี้ (เจ้าของงานจะเก็บรอบหน้า) ก่อนสรุปว่าเป็น echo จริงหรือเปล่า
-
-  **หักล้างสมมติฐานเรื่องจังหวะปลดไมค์ทั้งหมด (2026-09-14 หลัง log จริง 7 รอบ):** ทดสอบแล้วพบว่า
-  พูดวนไม่หยุดเกิดเหมือนกันทั้งตอนปลดไมค์ถูกจังหวะจริง (`bot_started_speaking`, รอบ 1/3) และตอนปลด
-  ผ่าน grace timeout (รอบ 2/4/5) — แปลว่า **จังหวะปลดไมค์ไม่ใช่สาเหตุ** 5 รอบที่แก้เรื่องนี้มา (mic
-  race, hangover, grace period) ไม่ใช่ทางที่ถูก เปลี่ยนทิศทางสงสัยไปที่ greet-first synthetic turn
-  เอง (Gemini อาจตีความเป็นบทสนทนาที่ต้องตอบต่อเนื่องหลายเทิร์น) แทน — เพิ่ม `?nogreet=1` (App.tsx)
-  ปิดเฉพาะ flag `greetFirst` ที่ส่งให้ `voice.connect()` (wake-word detection ยังทำงานปกติทุกอย่าง)
-  ไว้ตัดตัวแปรนี้ทดสอบแยกได้โดยไม่ต้องแก้โค้ด — ถ้าเปิด `?nogreet=1` แล้วอาการหาย ยืนยันได้ว่า
-  greet-first คือต้นเหตุจริง ยังไม่ได้ทดสอบ รอผลจากเจ้าของงาน
-
-  **เจอบั๊กแยกอีกอัน (ไม่เกี่ยวกับ wake-word เลย):** ไม่เคยเรียก `logging.basicConfig()` เลยสักที่ใน
-  แอป — root logger อยู่ที่ default (WARNING) ทุก `logger.info(...)` ในทั้งโปรเจกต์ (รวม
-  `[greet_diag]`/`[input_stt_diag]`) เลยไม่เคย print ออกมาจริงเลยตั้งแต่เพิ่มมา ที่เห็นมีแต่ SQL
-  echo ของ SQLAlchemy เพราะ `create_engine(echo=True)` set logger ของตัวเองตรงๆ ไม่ผ่าน root —
-  แก้แล้ว: เพิ่ม `logging.basicConfig(level=INFO)` ใน `main.py` และปิด SQL echo ออกจาก `APP_DEBUG`
-  (`database.py`, `echo=False` ตรงๆ) กัน SQL log ท่วมจนหา log จริงไม่เจอ
-
-  **สรุปสุดท้าย: "พูดวนไม่หยุด" ไม่เคยเป็นบั๊กเลย (2026-09-14, ยืนยันด้วย `?nogreet=1`):** ทดสอบปิด
-  greet-first ทั้งหมดแล้วอาการยังเหมือนเดิมทุกอย่าง — ตัดความเป็นไปได้เรื่อง greet-first ออกสมบูรณ์
-  ดู `[input_stt_diag]` ที่โผล่มาจริงแล้ว (หลังแก้ logging) เจอว่า Gemini ได้ยินคำถามจริงของผู้ใช้
-  ตลอด ("นายเป็นใคร", "SI ต่างจาก DII ยังไง", "I'm going to go to the bathroom" ฯลฯ) ไม่ใช่ echo/
-  hallucination เลย — ต้นเหตุจริงคือ `voice.transcript` (ฝั่ง `useVoiceSocket.ts`) สะสมข้อความของ
-  แมวทุกเทิร์นต่อกันไม่มีจุดแบ่งเลย บทสนทนาหลายเทิร์นปกติ (ผู้ใช้ถามต่อเนื่องระหว่างทดสอบ) เลยอ่าน
-  เหมือนแมวพูดเองไม่หยุดทั้งที่จริงๆ ตอบคำถามจริงทุกประโยค แก้แล้ว: ใส่เส้นแบ่ง `"---"` ทุกครั้งที่
-  `turn_complete` (ไม่กระทบ logic การสนทนาจริงเลย เป็นแค่เรื่อง display/debug)
-
-  **หมายเหตุ:** ฟีเจอร์/บั๊กฟิกซ์ 5 รอบก่อนหน้านี้ (mic race, mute hangover, grace period, AEC) ยังคง
-  ถูกต้องและมีประโยชน์อยู่ทั้งหมด — เป็นบั๊กจริงที่พิสูจน์ด้วย log แล้ว แค่ไม่ใช่สาเหตุของ "พูดวน" เท่านั้น
-  ไม่ต้อง revert อะไร
-
-  **ยังเป็นปริศนาอยู่ (บั๊กแยกกัน ไม่เกี่ยวกับที่แก้ไปทั้งหมดข้างบน):** เปิด `?wakeword=1&debug=1`
-  (ไม่มี nogreet) แล้ว wake-word recognizer วน `recognition_start`->`recognition_end (restart)`
-  รัวๆ ทุก ~700-900ms ไม่เคยนิ่งพอจะ "listening" ได้ยินอะไรเลย — เพิ่ม log
-  `recognition_error_ignored` (no-speech/aborted ที่เดิมไม่ log อะไรเลย) ใน `useWakeWord.ts` ไว้
-  diagnose รอบหน้า ยังไม่รู้สาเหตุ
+  **ยังเป็นปริศนาอยู่ (บั๊กแยกกัน ไม่เกี่ยวกับ greet-first เลย):** เปิด `?debug=1` แล้ว wake-word
+  recognizer วน `recognition_start`->`recognition_end (restart)` รัวๆ ทุก ~700-900ms ไม่เคยนิ่งพอจะ
+  "listening" ได้ยินอะไรเลย — **เจอสาเหตุแล้ว: เปิดสองแท็บพร้อมกัน แย่งไมค์กัน** (ยืนยันจากเจ้าของงาน
+  2026-09-14 — ปิดแท็บ/โปรแกรมอื่นที่ใช้ไมค์ให้เหลือแท็บเดียวแล้วหายเป็นปกติ) ไม่ใช่บั๊กโค้ด แต่เพิ่ม log
+  `recognition_error_ignored` (no-speech/aborted ที่เดิมไม่ log อะไรเลย) ไว้ใน `useWakeWord.ts` ต่อ
+  เผื่อเกิดซ้ำในสถานการณ์อื่นที่ไม่ใช่แย่งแท็บ
 
   ส่วนปัญหาคำลงท้าย "จ่ะ/จ๊ะ/จ้า" บางทีไม่ขึ้นใน transcript เลย เป็นข้อจำกัดของ Web Speech API เอง
   (STT accuracy ของ engine) ไม่ใช่บั๊กแอป — ไม่มีทางแก้ที่ layer นี้
