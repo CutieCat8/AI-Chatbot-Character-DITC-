@@ -52,12 +52,6 @@ function toCatFaceState(state: CatState, botSpeaking: boolean, isThinking: boole
 // ด้วยเสียงจริงแล้วตัดสินใจเรื่องปรับ threshold/hangover ร่วมกัน (ยังไม่แก้ logic การตรวจจับใด ๆ
 // ในรอบนี้)
 const isDebug = new URLSearchParams(window.location.search).get("debug") === "1";
-// ?nogreet=1 (2026-09-14) — ตัดตัวแปร greet-first ออกชั่วคราวเพื่อทดสอบว่าอาการพูดวนไม่หยุดหลังตื่น
-// มาจาก greet-first synthetic turn เองหรือเปล่า (เจ้าของงานสงสัยหลังลองแก้จังหวะปลดไมค์มา 5 รอบแล้ว
-// ยังไม่หาย — ต้องตัดตัวแปรนี้ออกดูก่อนว่าเกี่ยวจริงไหม) ใช้ query param แทนการแก้โค้ดสลับไปมา — ปิด
-// เฉพาะ flag greetFirst ที่ส่งให้ voice.connect() เท่านั้น ตัว wake-word detection เองยังทำงานปกติ
-// ทุกอย่าง (แค่ตื่นแล้วรอผู้ใช้พูดเองเหมือนปุ่ม "เริ่มคุย" แทนที่จะทักทายก่อน)
-const noGreet = new URLSearchParams(window.location.search).get("nogreet") === "1";
 
 export function App() {
   const [mode, setMode] = useState<Mode>("live-voice");
@@ -78,10 +72,11 @@ export function App() {
       mode === "live-voice" &&
       (voice.catState === "idle" || voice.catState === "sleep") &&
       (voice.connectionState === "idle" || voice.connectionState === "closed"),
-    // greetFirst: เฉพาะทางนี้เท่านั้น — ปุ่ม "เริ่มคุย" ที่ LiveVoicePanel เรียก voice.connect() ตรงๆ
+    // playGreeting: เฉพาะทางนี้เท่านั้น — ปุ่ม "เริ่มคุย" ที่ LiveVoicePanel เรียก voice.connect() ตรงๆ
     // ไม่มี flag นี้ ยังรอผู้ใช้พูดก่อนตามเดิม (ผู้ใช้กดปุ่มเองอยู่แล้ว ต่างจาก wake-word ที่ไม่มีปุ่ม
-    // ให้กดยืนยันอีกที) ดู GREET_FIRST_MESSAGE ใน backend/app/routers/voice.py — ปิดได้ด้วย ?nogreet=1
-    onDetected: () => { void voice.connect({ greetFirst: !noGreet }); },
+    // ให้กดยืนยันอีกที) เล่นไฟล์เสียงทักทายตรงๆ ไม่ผ่าน Gemini เลย — ดู GREETING_AUDIO_URL ใน
+    // useVoiceSocket.ts (เลิกใช้ synthetic turn ผ่าน send_client_content แล้ว ดู CLAUDE.md)
+    onDetected: () => { void voice.connect({ playGreeting: true }); },
     onTranscript: isDebug ? (transcript) => setWakeWordTranscript(transcript) : undefined,
   });
 
@@ -158,7 +153,7 @@ export function App() {
             transcript={voice.transcript}
             errorMessage={voice.errorMessage}
             // ห้ามส่ง voice.connect ตรงๆ — LiveVoicePanel ผูกกับ onClick ซึ่งจะส่ง MouseEvent มาเป็น
-            // arg ตัวแรก (กลายเป็น options ของ connect() โดยไม่ตั้งใจ) ปุ่มนี้ต้องไม่มี greetFirst เสมอ
+            // arg ตัวแรก (กลายเป็น options ของ connect() โดยไม่ตั้งใจ) ปุ่มนี้ต้องไม่มี playGreeting เสมอ
             onConnect={() => voice.connect()}
             onDisconnect={voice.disconnect}
           />

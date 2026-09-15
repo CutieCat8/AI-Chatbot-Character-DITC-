@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -77,19 +76,6 @@ SYSTEM_INSTRUCTION = (
     "ข้อยกเว้นทั้งสองข้อนี้ใช้เฉพาะกรณีที่ไม่มีคำถามอื่นเกี่ยวกับเรื่องนอกขอบเขต CAMT/DITC แนบมาด้วยเท่านั้น "
     "— ถ้ามีคำถามนอกขอบเขตจริงแนบมาด้วย (เช่น \"สวัสดีครับ ขอถามเรื่องดินฟ้าอากาศหน่อย\") ยังต้องเรียก "
     "flag_off_topic ตามปกติสำหรับส่วนคำถามนั้น"
-)
-
-# เฉพาะทาง wake-word (frontend: useVoiceSocket.ts connect({greetFirst:true}), เรียกจาก App.tsx
-# useWakeWord onDetected เท่านั้น — ปุ่ม "เริ่มคุย" ไม่ส่ง flag นี้ ยังรอผู้ใช้พูดก่อนตามปกติ) ผู้ใช้
-# เพิ่งเรียกด้วยเสียงไม่มีปุ่มให้กดยืนยันอีกที เลยให้แมวทักทายก่อนเองแทนที่จะนั่งรอเงียบๆ (ทดสอบจริง
-# 2026-09-14 พบว่าปล่อยให้ Gemini ตีความคำปลุกที่หลุดเข้ามาเป็นคำถามจริงไม่เสถียร — บางทีเงียบไปเลย
-# บางทีตีความว่านอกขอบเขต) ใช้ send_client_content (ไม่ใช่ send_realtime_input) เพราะเป็น turn
-# สังเคราะห์ ไม่มีเสียงจริงจากผู้ใช้ — ระบุชัดว่าเป็นข้อความระบบ ห้ามเรียก tool ใดๆ
-GREET_FIRST_MESSAGE = (
-    "(ข้อความระบบ ไม่ใช่คำถามจากผู้ใช้จริง — ห้ามเรียก tool ใดๆ สำหรับข้อความนี้) "
-    "ผู้ใช้เพิ่งเดินมาถึงตู้และเรียกคุณด้วยเสียง ทักทายสั้น ๆ 1 ประโยคเป็นภาษาไทยก่อน "
-    "แนะนำตัวว่าเป็น DITC CAT แล้วถามว่าช่วยอะไรได้บ้าง (ผู้ใช้อาจพูดต่อเป็นภาษาอังกฤษก็ได้ "
-    "ให้ตอบตามภาษาที่ผู้ใช้ใช้ต่อไปเรื่อย ๆ ไม่ต้องล็อกเป็นไทยทั้งบทสนทนา)"
 )
 
 SEARCH_FUNCTION = types.FunctionDeclaration(
@@ -200,7 +186,7 @@ async def voice_ws(websocket: WebSocket) -> None:
             session_resumption=types.SessionResumptionConfig(handle=resumption_handle),
         )
 
-    async def browser_to_gemini(session, greet_pending: dict) -> None:
+    async def browser_to_gemini(session) -> None:
         """รับจาก browser: เสียงไบนารี ส่งต่อ Gemini แบบ real-time, ข้อความ JSON (speech_start/
         speech_end จาก local RMS ฝั่ง browser) แปลงเป็น activity_start/activity_end ให้ Gemini
         (AAD ปิดอยู่ ต้องบอกเองทุกครั้ง ไม่ใช่แค่ตอนเปิด session — ดูคอมเมนต์ตอนสร้าง config)
@@ -231,11 +217,6 @@ async def voice_ws(websocket: WebSocket) -> None:
                 logger.warning("voice_ws: ข้อความ JSON parse ไม่ได้: %r", text)
                 continue
             if msg.get("type") == "speech_start":
-                # ผู้ใช้เริ่มพูดจริงแล้ว = ช่วง greet_first synthetic turn จบแน่นอน (ถ้ายังไม่จบเอง
-                # ด้วยเหตุผลอื่น) เคลียร์ที่นี่กัน flag ค้าง True ตลอด session ในเคสปกติที่สุด — Gemini
-                # ทักทายเฉยๆ ไม่เรียก tool อะไรเลย ไม่มีจุดไหนอื่นมา consume flag นี้ให้ (ไม่เคลียร์ตรงนี้
-                # คำถามนอกขอบเขตจริงครั้งแรกของผู้ใช้จะโดนกลืนไปด้วย ไม่ขึ้นหน้าโกรธทั้งที่ควรขึ้น)
-                greet_pending["active"] = False
                 # สัญญาณ "ผู้ใช้เริ่มพูดจริง" ตัวเดียวกับที่ frontend ใช้ตัดสิน UI — ใช้เป็นจุดนับ
                 # turn ของ analytics session ด้วย (ดู session_tracker.py) ไม่เกี่ยวกับ Gemini
                 # activity_start ด้านล่างเลย เป็นคนละเรื่องกัน แค่เกิดพร้อมกัน
@@ -243,33 +224,8 @@ async def voice_ws(websocket: WebSocket) -> None:
                 await session.send_realtime_input(activity_start=types.ActivityStart())
             elif msg.get("type") == "speech_end":
                 await session.send_realtime_input(activity_end=types.ActivityEnd())
-            elif msg.get("type") == "greet_first":
-                # ห่อ try/except เฉพาะจุดนี้ — ถ้า Gemini reject/error ต้อง log แล้วปล่อยผ่าน ไม่ใช่
-                # ปล่อยให้ exception หลุดออกจาก while True loop (จะทำให้ browser_to_gemini task ทั้ง
-                # อันตาย session ต้อง reconnect ทิ้ง resumption handle ทั้งที่ผู้ใช้แค่ไม่ได้คำทักทาย
-                # ควรแค่เงียบแล้วรอผู้ใช้พูดเองตามปกติแทน)
-                greet_pending["active"] = True
-                # diagnostic ชั่วคราว (2026-09-14) — เจ้าของงานทดสอบจริง 10 รอบ พบว่า 7/10 รอบแมวไม่
-                # เริ่มพูดทักทายเลยภายใน 4s (ดู frontend GREET_MIC_MUTE_TIMEOUT_MS/wakeLog) ไม่รู้ว่า
-                # send_client_content ส่งไม่สำเร็จ (คน catch ด้านล่างจับได้), Gemini เงียบไปเฉยๆ,
-                # หรือ Gemini ตอบมาจริงแต่ไม่ใช่เสียง — log timestamp ตรงนี้เทียบกับ log ใน
-                # gemini_to_browser (tag "[greet_diag]") ดูว่าเกิดอะไรขึ้นจริงช่วงรอ
-                greet_first_sent_at = time.monotonic()
-                logger.info("[greet_diag] greet_first: เริ่มส่ง send_client_content")
-                try:
-                    await session.send_client_content(
-                        turns=types.Content(role="user", parts=[types.Part(text=GREET_FIRST_MESSAGE)]),
-                        turn_complete=True,
-                    )
-                    logger.info(
-                        "[greet_diag] greet_first: send_client_content ส่งสำเร็จ (ใช้เวลา %.3fs)",
-                        time.monotonic() - greet_first_sent_at,
-                    )
-                except Exception:
-                    logger.exception("voice_ws: greet_first ส่งไม่สำเร็จ ปล่อยผ่านให้ผู้ใช้พูดเองตามปกติ")
-                    greet_pending["active"] = False
 
-    async def gemini_to_browser(session, resumption_state: dict, greet_pending: dict) -> None:
+    async def gemini_to_browser(session, resumption_state: dict) -> None:
         """รับเสียง/tool call จาก Gemini Live ส่งเสียงต่อให้ browser, จัดการ tool call เอง
 
         สำคัญ: session.receive() ของ SDK คืน "1 เทิร์นจบก็ break" เสมอ (ดู
@@ -287,31 +243,6 @@ async def voice_ws(websocket: WebSocket) -> None:
         loop = asyncio.get_running_loop()
         while True:
             async for response in session.receive():
-                if greet_pending["active"]:
-                    # diagnostic ชั่วคราว (2026-09-14, คู่กับ log ที่ greet_first branch ใน
-                    # browser_to_gemini tag เดียวกัน "[greet_diag]") — ดูให้ชัดว่า response แต่ละตัว
-                    # ที่ได้จาก Gemini ระหว่างรอ greet-first มีอะไรบ้าง (เสียง/tool call/transcript/
-                    # turn_complete) จำกัด log แค่ช่วง greet_pending active เท่านั้น กันสแปม log ตอน
-                    # คุยจริงปกติ
-                    # เพิ่ม generation_complete/turn_complete_reason/interaction_status (2026-09-14 —
-                    # เจ้าของงานสงสัยว่า turn_complete ที่มาไวมาก ~1.3s ก่อนเสียงจริง ~10s เป็นของ
-                    # greet turn จริงหรือเปล่า) — SDK เอกสารบอกว่า turn_complete ปกติต้องมาช้ากว่า
-                    # generation_complete เสมอ (รอ "playback เสร็จ" ก่อน) ถ้า log เห็น turn_complete=True
-                    # ตอนที่ generation_complete ยังไม่ true เลย น่าจะยืนยันได้ว่าเป็นคนละ turn จริง
-                    sc = response.server_content
-                    logger.info(
-                        "[greet_diag] response: has_data=%s data_len=%s tool_call=%s "
-                        "transcription=%r turn_complete=%s generation_complete=%s "
-                        "turn_complete_reason=%s interaction_status=%s",
-                        response.data is not None,
-                        len(response.data) if response.data is not None else None,
-                        [fc.name for fc in response.tool_call.function_calls] if response.tool_call else None,
-                        sc.output_transcription.text if sc and sc.output_transcription else None,
-                        bool(sc and sc.turn_complete),
-                        getattr(sc, "generation_complete", None) if sc else None,
-                        getattr(sc, "turn_complete_reason", None) if sc else None,
-                        getattr(sc, "interaction_status", None) if sc else None,
-                    )
                 if response.session_resumption_update and response.session_resumption_update.resumable:
                     # เก็บ handle ล่าสุดไว้ตลอด session (อัปเดตทุกครั้งที่ Gemini ส่งมาใหม่ ไม่ใช่แค่
                     # ครั้งเดียวตอนต่อ) ต้องเช็ค resumable ด้วย — ถ้า false แปลว่า ณ จุดนี้ resume ไม่ได้
@@ -338,25 +269,15 @@ async def voice_ws(websocket: WebSocket) -> None:
                             # transcript — ถ้าโมเดลไม่เรียกตัวนี้ก็แค่ไม่โกรธ ไม่มี fallback
                             # เดาเอง (ตามที่ตกลงไว้ ห้าม guess จาก keyword เด็ดขาด)
                             topic = fc.args.get("topic", "")
-                            if greet_pending["active"]:
-                                # กันแมวหน้าโกรธทันทีตอนตื่นจาก wake-word ถ้าโมเดลตีความ trigger
-                                # ประโยคทักทายสังเคราะห์ (greet_first) เป็นคำถามนอกขอบเขต — consume
-                                # แค่ครั้งเดียว (ไม่รอ turn_complete) กันค้าง True ตลอด session ถ้า
-                                # send_client_content ฝั่ง browser_to_gemini fail ไปแล้วไม่มี turn
-                                # ให้จบ ไม่นับเป็น off-topic จริงสำหรับ analytics เลย (ไม่ใช่คำถาม
-                                # จากผู้ใช้จริง)
-                                greet_pending["active"] = False
-                                logger.info("voice_ws: กัน off_topic จาก greet_first synthetic turn (topic=%r)", topic)
-                            else:
-                                logger.info("voice off-topic flagged: topic=%r", topic)
-                                # สัญญาณให้ topic classifier ตอนปิด session (ดู session_tracker.py /
-                                # topic_classifier.py) — เป็นคำที่ Gemini สรุปเอง ไม่ใช่คำพูดผู้ใช้ตรง ๆ
-                                tracker.record_signal(topic)
-                                # เกณฑ์ NOISE (ดู session_tracker.py): เรียก flag_off_topic = มีคำถาม
-                                # จริงจากคนจริงแล้ว (แค่นอกขอบเขต) ไม่ใช่ NOISE ต่างจาก mark_knowledge_
-                                # search_called ด้านล่าง (คนละความหมาย ต้องตั้งทั้งคู่แยกกัน)
-                                tracker.mark_off_topic_flagged()
-                                await websocket.send_json({"type": "off_topic"})
+                            logger.info("voice off-topic flagged: topic=%r", topic)
+                            # สัญญาณให้ topic classifier ตอนปิด session (ดู session_tracker.py /
+                            # topic_classifier.py) — เป็นคำที่ Gemini สรุปเอง ไม่ใช่คำพูดผู้ใช้ตรง ๆ
+                            tracker.record_signal(topic)
+                            # เกณฑ์ NOISE (ดู session_tracker.py): เรียก flag_off_topic = มีคำถาม
+                            # จริงจากคนจริงแล้ว (แค่นอกขอบเขต) ไม่ใช่ NOISE ต่างจาก mark_knowledge_
+                            # search_called ด้านล่าง (คนละความหมาย ต้องตั้งทั้งคู่แยกกัน)
+                            tracker.mark_off_topic_flagged()
+                            await websocket.send_json({"type": "off_topic"})
                             function_responses.append(
                                 types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})
                             )
@@ -380,6 +301,11 @@ async def voice_ws(websocket: WebSocket) -> None:
                     await session.send_tool_response(function_responses=function_responses)
 
                 if response.data is not None:
+                    # diagnostic ถาวร (2026-09-14) — log ทุกก้อนเสียงที่มาถึงตลอด session (ไม่จำกัดช่วง)
+                    # พร้อม timestamp+ขนาด ไว้เทียบกับ [input_stt_diag]/turn_complete ตอน debug จังหวะ
+                    # เสียงเทียบกับ transcript ได้ตรงๆ โดยไม่ต้องเดา (เดิมเคยผูกไว้กับกลไก greet-first
+                    # ที่ตัดออกไปแล้ว — ดู CLAUDE.md เรื่องเลิกใช้ send_client_content)
+                    logger.info("[audio_arrival_diag] เสียงมาถึง: data_len=%d", len(response.data))
                     await websocket.send_bytes(response.data)
 
                 # getattr แบบ default None ตลอด — SDK จริงมี field นี้เสมอ (ดู build_config ที่ขอ
@@ -419,10 +345,6 @@ async def voice_ws(websocket: WebSocket) -> None:
 
     resumption_handle: str | None = None
     consecutive_failures = 0
-    # เก็บนอก while True (ไม่ใช่ต่อรอบ reconnect) เพราะ greet_first เกิดครั้งเดียวตอนต่อ session แรกสุด
-    # เท่านั้น (frontend ส่งตอน ws.onopen ครั้งเดียว) แต่ต้องรอดแฟลกข้าม reconnect ได้ถ้า GoAway มาไว
-    # ผิดปกติก่อน greet turn จะจบ — ไม่ใช่ปัญหาจริงที่เคยเจอ แค่กันไว้เผื่อ
-    greet_pending = {"active": False}
 
     try:
         while True:
@@ -439,8 +361,8 @@ async def voice_ws(websocket: WebSocket) -> None:
                     # ไม่งั้น async with ปิด session ทิ้งไปแล้ว แต่ gemini_to_browser ยังพยายาม await
                     # session.receive() ต่อ กลายเป็น "Task exception was never retrieved"
                     tasks = [
-                        asyncio.create_task(browser_to_gemini(session, greet_pending)),
-                        asyncio.create_task(gemini_to_browser(session, resumption_state, greet_pending)),
+                        asyncio.create_task(browser_to_gemini(session)),
+                        asyncio.create_task(gemini_to_browser(session, resumption_state)),
                     ]
                     try:
                         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

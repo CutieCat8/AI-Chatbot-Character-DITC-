@@ -35,21 +35,18 @@ const BOT_SPEECH_END_HANGOVER_MS = 700;
 // ต้องคิดค่าใหม่) — ดู onaudioprocess ที่ใช้จริง
 const MIC_MUTE_HANGOVER_MS = BOT_SPEECH_END_HANGOVER_MS;
 const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
-// เผื่อ greet_first ค้างจริงๆ แบบผิดปกติ (ไม่มีทั้งเสียงแมวพูดและไม่มี turn_complete เลย — ดู
-// คอมเมนต์เต็มที่ connect()) ยาวไว้ก่อน (2026-09-14 ปรับจาก 4s เป็น 18s ตามคำสั่งเจ้าของงาน — ยอมให้
-// ผู้ใช้รอเงียบนานกว่าเดิม ดีกว่าเสี่ยงเปิดไมค์ก่อนเวลาแล้วแมวพูดวนเอง) เป็น "กันค้างถาวร" เท่านั้น
-// ไม่ใช่ตัวตัดสินปกติว่าเมื่อไหร่ปลอดภัยเปิดไมค์ (นั่นผูกกับ isBotSpeaking()/turn_complete-ไม่มีเสียง)
-const GREET_MIC_MUTE_TIMEOUT_MS = 18_000;
-// เจอบั๊กจริง (2026-09-14, log 7 รอบยืนยัน — เจ้าของงานชี้): สมมติฐานเดิมว่า turn_complete มาโดยไม่มี
-// เสียงเลย = เทิร์นจบแบบไม่มีคำตอบเสียง **ผิด** — 6/7 รอบ turn_complete ของ greet turn มาถึงไวมาก
-// (~1.3s) ก่อนเสียงจริงจะเริ่มมาตั้ง ~10s ถัดมา (สงสัยว่า turn_complete ที่มาไวนั้นเป็นของ turn อื่น
-// ไม่ใช่ของ greet turn จริง — ต้องดู [greet_diag] ฝั่ง backend ยืนยันอีกที ยังไม่สรุป) เดิมพอเจอ
-// turn_complete แบบนี้แล้วปลดไมค์ทันทีเลย เปิดโอกาสให้ไมค์เปิดค้างระหว่างที่เสียงจริงกำลังจะตามมา
-// อีกหลายวินาที — แก้เป็น "รอผ่อนผัน" แทนที่จะปลดทันที: เจอ turn_complete แบบไม่มีเสียงแล้ว รอต่ออีก
-// เท่านี้ก่อน ถ้าระหว่างนั้นมีเสียงมาจริง (ArrayBuffer) ให้ยกเลิกการปลดทันที (ให้ isBotSpeaking() เป็น
-// คนตัดสินต่อตามปกติ) ถ้าครบเวลานี้แล้วยังเงียบสนิทจริงๆ ถึงค่อยปลด — GREET_MIC_MUTE_TIMEOUT_MS ข้างบน
-// ยังคงเป็นด่านสุดท้ายกันค้างถาวรเหมือนเดิม ไม่แตะ
-const GREET_TURN_COMPLETE_GRACE_MS = 3_000;
+
+// เล่นตอนตื่นด้วยคำปลุก (ดู App.tsx: useWakeWord's onDetected -> connect({ playGreeting: true }))
+// (2026-09-15) **แทนที่** กลไก greet-first เดิมทั้งหมด (เคยส่ง synthetic turn ผ่าน
+// session.send_client_content() ให้ Gemini พูดทักทายเอง) — เลิกใช้เพราะเจอ root cause จริงจาก
+// docstring ของ SDK เอง (`AsyncSession.send_client_content`): "Caution: Interleaving
+// `send_client_content` and `send_realtime_input` in the same conversation is not recommended and
+// can lead to unexpected results." สถาปัตยกรรมเดิมของเราทำแบบนั้นเป๊ะ (synthetic text turn ตามด้วย
+// เสียงจริงจากไมค์เกือบจะทันที) — น่าจะเป็นต้นตอที่แท้จริงของความแปลกทั้งหมดที่ไล่แก้มา 6 รอบ (จังหวะ
+// เทิร์นสลับ/ตอบช้าไม่คงที่/เทิร์นสองแทรกมาก่อนเทิร์นแรกจบ) ไม่ใช่แค่เรื่อง timing ที่ปรับ grace period
+// แก้ได้ ดูรายละเอียดเต็มที่ CLAUDE.md — แก้โดยเลิกส่งอะไรเข้า Gemini เลยตอนตื่น ใช้ไฟล์เสียงอัดไว้
+// ล่วงหน้าแทน เล่นผ่าน Web Audio API ตรงๆ ไม่ผ่าน session เลยสักครั้ง (ดู connect() ส่วนเล่นเสียงทักทาย)
+const GREETING_AUDIO_URL = "/audio/greeting.wav";
 
 // ⚠️ ทดลองแก้บั๊ก "เสียงติ๊ก/ป็อบแทรกระหว่างแมวพูด" (2026-09-08) — ยังไม่ยืนยันด้วยอุปกรณ์จริง/หูจริง
 // ห้ามเชื่อว่าหายแล้วจนกว่าจะรัน docs/click-noise-manual-test-plan.md บนแท็บเล็ตจริง (ดู CLAUDE.md)
@@ -115,9 +112,10 @@ interface UseVoiceSocketResult {
   amplitude: number;
   transcript: string;
   errorMessage: string | null;
-  /** `greetFirst`: ให้แมวทักทายก่อนเองโดยไม่ต้องรอผู้ใช้พูด — ใช้เฉพาะตอนตื่นจาก wake-word เท่านั้น
-   * (ปุ่ม "เริ่มคุย" ไม่ส่ง flag นี้ ยังคงพฤติกรรมเดิมทุกประการ) */
-  connect: (options?: { greetFirst?: boolean }) => Promise<void>;
+  /** `playGreeting`: เล่นเสียงทักทายจากไฟล์ (`GREETING_AUDIO_URL`) ทันทีตอนเริ่ม connect — ใช้เฉพาะ
+   * ตอนตื่นจาก wake-word เท่านั้น (ปุ่ม "เริ่มคุย" ไม่ส่ง flag นี้ ยังคงพฤติกรรมเดิมทุกประการ ไม่ทักทาย
+   * เอง) ไม่ผ่าน Gemini เลย — ดูคอมเมนต์ที่ GREETING_AUDIO_URL ต้นไฟล์ว่าทำไมเลิกใช้ synthetic turn */
+  connect: (options?: { playGreeting?: boolean }) => Promise<void>;
   disconnect: () => void;
   /**
    * ค่าดิบของ local RMS VAD ต่อเฟรม — มีค่าจริงเฉพาะตอนเปิด `{ debug: true }` เท่านั้น (ปิดไว้เป็น
@@ -298,7 +296,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setDebugVad(null);
   }, [setCatStateSafe, setConnectionStateSafe]);
 
-  const connect = useCallback(async (options?: { greetFirst?: boolean }) => {
+  const connect = useCallback(async (options?: { playGreeting?: boolean }) => {
     // กันเรียกซ้อนกัน — เช่น ปุ่ม "เริ่มคุย" กับ wake-word ยิงมาใกล้ๆ กันพอดี (state machine เต็มที่
     // useWakeWord.ts: listening -> releasing_mic -> เรียก onDetected -> connect() ที่นี่ ต้องไม่มี
     // การเรียกซ้อนสอง getUserMedia/WebSocket พร้อมกันจากคนละ trigger)
@@ -306,7 +304,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       logWake("connect_skipped_already_in_progress", connectionStateRef.current);
       return;
     }
-    logWake("connect_start", options?.greetFirst ? "greetFirst=true" : "greetFirst=false");
+    logWake("connect_start", options?.playGreeting ? "playGreeting=true" : "playGreeting=false");
     setErrorMessage(null);
     setConnectionStateSafe("connecting");
     setTranscript("");
@@ -316,64 +314,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     hasBotSpokenThisTurnRef.current = false;
     botSpeechEndSinceRef.current = null;
     setOffTopic(false);
-
-    // เจอบั๊กจริง (2026-09-14): ตอน greetFirst ไมค์ตัวใหม่ (getUserMedia ด้านล่าง) เริ่มจับเสียงทันที
-    // ที่เปิดสำเร็จ — ไม่รอให้แมวเริ่มพูดทักทายก่อนเลย (isBotSpeaking() ยังเป็น false อยู่ช่วงนั้น
-    // เพราะรอ Gemini สร้างเสียง + JITTER_BUFFER_MS) เสียงแวดล้อม/เสียงพูดค้างแถวไมค์ช่วงนี้ (RMS ผ่าน
-    // threshold ต่ำแค่ 0.02) จะโดนส่งเป็น speech_start ของจริงให้ backend ทันที ซึ่ง backend ใช้
-    // speech_start เป็นตัวเคลียร์ greet_pending guard (ดู routers/voice.py บรรทัด "ผู้ใช้เริ่มพูดจริง
-    // แล้ว") — เคลียร์ guard ไปก่อนแมวจะทักทายจบเสียอีก พอเสียงแวดล้อมนั้นโดน Gemini ตีความว่าไม่เกี่ยว
-    // กับ CAMT/DITC (มันคือเสียงเพี้ยน/สิ่งแวดล้อม ไม่ใช่คำถามจริง) ก็เรียก flag_off_topic ได้ปกติเพราะ
-    // guard ที่ควรกันไว้หายไปแล้ว กลายเป็นบั๊กที่ผู้ใช้เจอ: พูด "สวัสดี" เดี่ยวๆ แล้วโดนตอบ "ตอบได้แค่
-    // เรื่อง DITC/CAMT" ทั้งที่ SYSTEM_INSTRUCTION มีข้อยกเว้นทักทายอยู่แล้ว — ปัญหาจริงไม่ได้อยู่ที่
-    // prompt แต่อยู่ที่ไมค์ส่งเสียงจริงแทรกเข้ามาช่วง greet-first ก่อนเวลาอันควร แก้โดย mute ไมค์
-    // (เหมือน half-duplex ตอนแมวพูด) ไว้จนกว่าแมวจะเริ่มพูดทักทายจริง (isBotSpeaking()===true)
-    //
-    // แก้รอบสอง (2026-09-14 หลังทดสอบจริง 10 รอบ — เจ้าของงานทัก): เดิมผูก unmute ไว้กับ setTimeout
-    // ตายตัว 4s เพียวๆ ผิดหลักการ เพราะ "ถึงเวลาที่ตั้งไว้แล้ว" ไม่ได้แปลว่า "ปลอดภัยที่จะเปิดไมค์แล้ว"
-    //
-    // แก้รอบสาม (2026-09-14 หลังทดสอบจริงอีก 5 รอบพร้อม log — เจ้าของงานชี้ตรงจุด): แค่ re-arm timer
-    // ตอนมี activity ยังไม่พอ เพราะ 3/5 รอบที่พังคือ "เงียบสนิทไม่มี activity อะไรเลยจริงๆ" นานเกิน
-    // 4s แล้วค่อยมีเสียงมาทีหลัง (ไม่มี activity ให้ re-arm ระหว่างนั้นเลย) ไมค์เลยเปิดไปก่อนแมวเริ่ม
-    // พูดจริง พอเสียงแมวเล่นออกลำโพงทีหลัง (ไม่มี AEC ก็ยิ่งซ้ำ) ไมค์ที่เปิดอยู่แล้วได้ยินตัวเองพูดวน
-    // ห้ามให้เวลาเป็นตัวตัดสินว่าปลอดภัยเปิดไมค์อีกต่อไป — unmute จริงต้องมาจากสัญญาณ "รู้แน่ชัด" เท่านั้น
-    //
-    // แก้เพิ่ม (2026-09-14, log 7 รอบ): เดิมถือว่า turn_complete มาโดยไม่มีเสียงเลย = ปลอดภัยปลดไมค์
-    // ทันที **ผิด** — เจอจริง 6/7 รอบว่า turn_complete มาไวมาก (~1.3s) ทั้งที่เสียงจริงเพิ่งมาอีกตั้ง
-    // ~10s ถัดมา (สงสัยว่า turn_complete นั้นไม่ใช่ของ greet turn จริง ต้องดู [greet_diag] ยืนยัน) เปลี่ยน
-    // เป็น "รอผ่อนผัน" (ดู GREET_TURN_COMPLETE_GRACE_MS ต้นไฟล์) แทนปลดทันที — เจอ turn_complete แบบไม่มี
-    // เสียงแล้วไม่ปลดเลย รอ GREET_TURN_COMPLETE_GRACE_MS ก่อน ถ้าเสียงมาระหว่างนั้นยกเลิกรอ ปล่อยให้
-    // isBotSpeaking() ตัดสินตามปกติ ถ้าครบเวลาแล้วยังเงียบจริงๆ ถึงค่อยปลด
-    //
-    // timeout ที่เหลือ (ยืดเป็น GREET_MIC_MUTE_TIMEOUT_MS ยาวขึ้นมากจาก 4s) มีไว้กันค้างถาวรอย่างเดียว
-    // จริงๆ (เช่น turn_complete เองก็ไม่มา ไม่ใช่แค่ audio ไม่มา) ยอมให้ผู้ใช้รอเงียบนานกว่าเดิมดีกว่า
-    // เสี่ยงเปิดไมค์ก่อนเวลาแล้วแมวพูดวนเอง
-    let greetMicMuted = options?.greetFirst === true;
-    let receivedAudioForGreetTurn = false;
-    let greetMicMuteTimer: ReturnType<typeof setTimeout> | null = null;
-    let greetTurnCompleteGraceTimer: ReturnType<typeof setTimeout> | null = null;
-    const clearGreetMicMute = (reason: string) => {
-      if (!greetMicMuted) return;
-      logWake("greet_mic_mute_cleared", reason);
-      greetMicMuted = false;
-      if (greetMicMuteTimer) {
-        clearTimeout(greetMicMuteTimer);
-        greetMicMuteTimer = null;
-      }
-      if (greetTurnCompleteGraceTimer) {
-        clearTimeout(greetTurnCompleteGraceTimer);
-        greetTurnCompleteGraceTimer = null;
-      }
-    };
-    if (greetMicMuted) {
-      logWake("greet_mic_mute_start");
-      greetMicMuteTimer = setTimeout(() => {
-        // มาถึงจุดนี้ได้แปลว่าไม่มีทั้งเสียงแมวพูดจริงและไม่มี turn_complete ส่งมาเลยตลอดเวลาที่ตั้งไว้
-        // — ถือว่า greet_first ค้าง/ล้มเหลวแบบผิดปกติจริง ไม่ใช่แค่ช้าปกติ เปิดไมค์คืนให้ผู้ใช้พูดเอง
-        greetMicMuteTimer = null;
-        clearGreetMicMute(`timeout_${GREET_MIC_MUTE_TIMEOUT_MS}ms_stuck`);
-      }, GREET_MIC_MUTE_TIMEOUT_MS);
-    }
 
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
@@ -394,6 +334,33 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     outputGain.connect(analyser);
     analyser.connect(audioCtx.destination);
     analyserRef.current = analyser;
+
+    // เล่นเสียงทักทายจากไฟล์ทันที (2026-09-15 — ดู GREETING_AUDIO_URL ต้นไฟล์ว่าทำไมเลิกใช้ Gemini
+    // ทักทายเอง) — fire-and-forget ด้วย void ตรงนี้เลย ไม่ await จึงไม่บล็อก getUserMedia/WS ด้านล่าง
+    // (เล่นได้ทันทีที่ตื่น ไม่ต้องรอ ws_open เลยด้วยซ้ำ) เล่นผ่าน outputGain เส้นทางเดียวกับเสียงตอบ
+    // ของ Gemini จริง แล้ว push เข้า scheduledAudioRef เหมือนก้อนเสียงปกติทุกประการ — ได้ half-duplex
+    // mute (isBotSpeaking()) ฟรีทันทีจากกลไกเดิมที่มีอยู่แล้ว ไม่ต้องเขียน mute state ใหม่เลยสักบรรทัด
+    if (options?.playGreeting) {
+      void (async () => {
+        try {
+          logWake("greeting_audio_start");
+          const response = await fetch(GREETING_AUDIO_URL);
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          const source = audioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(outputGain);
+          const startTime = audioCtx.currentTime;
+          source.start(startTime);
+          scheduledAudioRef.current.push({ startTime, endTime: startTime + audioBuffer.duration });
+          logWake("greeting_audio_scheduled", `${audioBuffer.duration.toFixed(2)}s`);
+        } catch (error) {
+          // ไม่ throw ต่อ — เล่นเสียงทักทายไม่สำเร็จไม่ควรทำให้คุยต่อไม่ได้เลย แค่ไม่มีทักทาย
+          logWake("greeting_audio_error", error instanceof Error ? error.message : String(error));
+          console.warn("เล่นเสียงทักทายไม่สำเร็จ:", error);
+        }
+      })();
+    }
 
     const scheduleChunk = (arrayBuffer: ArrayBuffer) => {
       const float32 = pcm16ToFloat32(arrayBuffer);
@@ -450,10 +417,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       const speaking = isBotSpeaking();
       setBotSpeaking(speaking);
       if (speaking) {
-        // แมวเริ่มพูดทักทายจริงแล้ว (เสียงเริ่มเล่นจริงหลัง jitter buffer) เลิก mute ไมค์พิเศษช่วง
-        // greet-first ได้ — isBotSpeaking() เองจะรับช่วง mute ต่อตามปกติ (half-duplex เดิม) ไม่มีช่วง
-        // ที่ไมค์เปิดค้างระหว่างสองกลไกนี้
-        clearGreetMicMute("bot_started_speaking");
         if (catStateRef.current !== "wake") setCatStateSafe("wake");
         setIsThinking(false); // แมวเริ่มพูดจริงแล้ว เลิกนับว่าเป็นช่วงรอคำตอบ
         hasBotSpokenThisTurnRef.current = true; // ยืนยันแล้วว่าเทิร์นนี้แมวได้พูดจริง ไม่ใช่แค่เงียบเฉย ๆ
@@ -533,10 +496,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     const hangoverBuffers = Math.max(1, Math.round((SILENCE_HANGOVER_MS / 1000) * audioCtx.sampleRate / BUFFER_SIZE));
     const listeningHangoverBuffers = Math.max(1, Math.round((LISTENING_HANGOVER_MS / 1000) * audioCtx.sampleRate / BUFFER_SIZE));
 
-    // diagnostic ชั่วคราว (2026-09-14) — เจ้าของงานขอให้ตรวจว่า half-duplex ปกติ (isBotSpeaking())
-    // ทำงานจริงระหว่างที่แมวพูดวนเองหรือเปล่า ไม่ log ทุก onaudioprocess (รัวเกินไป ~85ms/ครั้ง) แค่
-    // log ตอน "เปลี่ยนสถานะ" (mute ใหม่ / เลิก mute) พร้อมเหตุผลตอนนั้น เทียบกับ isBotSpeaking()/
-    // greetMicMuted จริงตอนที่เปลี่ยน
+    // diagnostic ถาวร — log ตอน "เปลี่ยนสถานะ" mute (mute ใหม่ / เลิก mute) พร้อมเหตุผล ไม่ log ทุก
+    // onaudioprocess (รัวเกินไป ~85ms/ครั้ง) ไว้ยืนยันว่า half-duplex ทำงานถูกต้องตอน debug
     let micMuteLogState: string | null = null;
     // เวลา (performance.now()) ล่าสุดที่เห็น isBotSpeaking()===true — null แปลว่ายังไม่เคยเห็นเลยใน
     // การเชื่อมต่อรอบนี้ ใช้คำนวณ hangover สำหรับ "ยังนับว่าแมวพูดอยู่" (ดู MIC_MUTE_HANGOVER_MS)
@@ -546,8 +507,9 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       if (ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
 
-      // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด รวมถึงช่วงพิเศษ
-      // greetMicMuted (รอแมวเริ่มพูดทักทายจริงหลัง wake-word — ดูคอมเมนต์ที่ต้น connect())
+      // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด (รวมถึงตอนเล่น
+      // เสียงทักทายจากไฟล์ ซึ่ง push เข้า scheduledAudioRef เหมือนเสียง Gemini ปกติ เลยเข้าเงื่อนไขนี้
+      // โดยอัตโนมัติ ไม่ต้องเขียนเงื่อนไขแยก)
       //
       // ห้ามอ่าน isBotSpeaking() ดิบๆ ตรงนี้แล้วตัดสิน mute ทันที (ดู MIC_MUTE_HANGOVER_MS ด้านบน
       // ไฟล์ — ช่องว่างจริงกลางเทิร์นเดียวกัน 7-90ms จะทำให้ไมค์กระพริบเปิดตามไปด้วย) ต้องผ่าน hangover
@@ -559,21 +521,13 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       const botSpeakingWithHangover =
         botSpeakingRaw || (lastBotSpeakingAt !== null && now - lastBotSpeakingAt < MIC_MUTE_HANGOVER_MS);
 
-      const muteReason = botSpeakingWithHangover && greetMicMuted
-        ? "bot_speaking+greet_pending"
-        : botSpeakingWithHangover
-          ? botSpeakingRaw
-            ? "bot_speaking"
-            : "bot_speaking_hangover"
-          : greetMicMuted
-            ? "greet_pending"
-            : null;
+      const muteReason = botSpeakingWithHangover ? (botSpeakingRaw ? "bot_speaking" : "bot_speaking_hangover") : null;
       if (muteReason !== micMuteLogState) {
         logWake(muteReason ? "mic_muted" : "mic_open", muteReason ?? undefined);
         micMuteLogState = muteReason;
       }
 
-      if (botSpeakingWithHangover || greetMicMuted) {
+      if (botSpeakingWithHangover) {
         // ถ้าเพิ่งพูดค้างอยู่ตอนโดน mute (เช่น เผลอพูดคาบเกี่ยวจังหวะที่เสียงแมวเริ่มเล่นจริงหลัง
         // jitter buffer 1.5s ซึ่ง isBotSpeaking() ยังไม่ทันขึ้น true) ต้องปิด activity ให้ Gemini
         // ทันทีตรงนี้ ไม่งั้น wasSpeechRef ค้างเป็น true ข้ามรอบ mute พอเปิดไมค์กลับมาแล้วผู้ใช้เริ่ม
@@ -659,13 +613,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       setConnectionStateSafe("connected");
       setCatStateSafe("idle");
       resetIdleTimer();
-      // เฉพาะทาง wake-word (App.tsx: useWakeWord's onDetected) — ผู้ใช้เพิ่งเรียกด้วยเสียงแล้วไม่มี
-      // ปุ่มให้กดยืนยันอีกที ต่างจากปุ่ม "เริ่มคุย" ที่ผู้ใช้ตั้งใจกดเพื่อเริ่มพูดเองอยู่แล้ว จึงยังคง
-      // รอผู้ใช้พูดก่อนตามปกติ (ไม่ทักทายเอง) — ฝั่ง backend ดู GREET_FIRST_MESSAGE ใน routers/voice.py
-      if (options?.greetFirst) {
-        logWake("greet_first_sent");
-        ws.send(JSON.stringify({ type: "greet_first" }));
-      }
+      // เสียงทักทาย (ถ้ามี) เล่นไปแล้วตอน connect() เริ่ม ไม่รอ ws_open — ไม่ต้องส่งอะไรพิเศษให้
+      // backend ตรงนี้อีก (ดู GREETING_AUDIO_URL ต้นไฟล์)
     };
     ws.onmessage = (event) => {
       if (typeof event.data === "string") {
@@ -679,17 +628,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           // Gemini ได้ยินคำถามจริงของผู้ใช้ทุกครั้ง ไม่ใช่ echo/hallucination) ใส่เส้นแบ่งเทิร์นให้
           // ชัดเจน กันเข้าใจผิดแบบนี้อีกตอน debug
           setTranscript((prev) => (prev ? prev + "\n---\n" : prev));
-          // ไม่ปลด greetMicMuted ทันทีอีกต่อไป (ดูคอมเมนต์ยาวต้น connect() — เจอจริงว่า turn_complete
-          // มาไวกว่าเสียงจริงมาก ปลดทันทีเลยเปิดไมค์ค้างระหว่างที่เสียงกำลังจะตามมา) แค่ "รอผ่อนผัน"
-          // ก่อน ถ้าไม่มีเสียงมาเลยจนครบเวลาค่อยปลดจริง (ArrayBuffer handler ด้านล่างจะยกเลิกให้เองถ้า
-          // เสียงมาระหว่างรอ) กันเรียกซ้อนถ้า turn_complete มาหลายครั้งติดกันด้วย `greetTurnCompleteGraceTimer`
-          if (greetMicMuted && !receivedAudioForGreetTurn && !greetTurnCompleteGraceTimer) {
-            logWake("greet_turn_complete_no_audio_yet", `grace_${GREET_TURN_COMPLETE_GRACE_MS}ms`);
-            greetTurnCompleteGraceTimer = setTimeout(() => {
-              greetTurnCompleteGraceTimer = null;
-              clearGreetMicMute("turn_complete_grace_elapsed_no_audio");
-            }, GREET_TURN_COMPLETE_GRACE_MS);
-          }
           // เสียงอาจยังเล่นค้างอยู่ (บัฟไว้ล่วงหน้า) — ปล่อยให้ isBotSpeaking() ใน tick() เป็นคนตัดสิน
           // ว่าจบจริงเมื่อไหร่ ไม่ reset transcript ที่นี่ทันที เผื่อผู้ใช้อยากอ่านคำตอบล่าสุด
         } else if (msg.type === "off_topic") {
@@ -700,17 +638,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           setOffTopic(true);
         }
       } else if (event.data instanceof ArrayBuffer) {
-        // มีเสียงจริงมาแล้วสำหรับเทิร์น greet-first นี้ (ต่อให้ยังไม่ถึงคิวเล่นจริงเพราะ jitter
-        // buffer ก็ตาม) — ยกเลิกการรอผ่อนผัน (ถ้ากำลังรออยู่) ทันที เสียงกำลังมาจริง ปล่อยให้
-        // isBotSpeaking() เป็นคนตัดสินปลดไมค์ต่อไปตามปกติแทน (ดู ws.onmessage เคส turn_complete)
-        if (greetMicMuted) {
-          receivedAudioForGreetTurn = true;
-          if (greetTurnCompleteGraceTimer) {
-            logWake("greet_turn_complete_grace_cancelled", "audio_arrived");
-            clearTimeout(greetTurnCompleteGraceTimer);
-            greetTurnCompleteGraceTimer = null;
-          }
-        }
         enqueueAudio(event.data);
       }
     };
