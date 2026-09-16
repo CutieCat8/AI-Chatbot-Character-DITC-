@@ -10,39 +10,40 @@ interface ConversationStatCardsProps {
 
 // unclassified/other ต้องเป็นตัวเลขที่เห็นง่าย (ผู้ว่าจ้างใช้ดูว่า enum ครอบพอไหม/classifier
 // ทำงานปกติไหม) — ให้ขนาดตัวเลขเท่ากับการ์ดหลัก ไม่ใช่ตัวเล็กจิ๋วแบบรายละเอียดรอง
+//
+// การ์ดทั้ง 4 ใบใช้โทนเทาเดียวกันหมดโดยตั้งใจ (ไม่ใช้ amber/sky เด่นแยกเป็นบางใบ) — ผู้ว่าจ้าง
+// feedback ว่าสีเหลือง/ฟ้าดันเด่นเกินไปจนดูเหมือนบางการ์ดสำคัญกว่าใบอื่น ทั้งที่ทั้ง 4 ตัวเลขนี้
+// สำคัญเท่ากันหมดสำหรับดูสุขภาพของ classifier
 export function ConversationStatCards({ stats, prevStats }: ConversationStatCardsProps) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
       <StatCard
-        icon={<MessageSquareText size={13} className="text-gray-400" />}
+        icon={<MessageSquareText size={15} />}
         label="จำนวนบทสนทนา"
         value={stats.total_conversations}
         prevValue={prevStats?.total_conversations}
         emphasis
       />
       <StatCard
-        icon={<HelpCircle size={13} className="text-amber-500" />}
+        icon={<HelpCircle size={15} />}
         label="ยังไม่จัดหมวด (Unclassified)"
         value={stats.unclassified_count}
         prevValue={prevStats?.unclassified_count}
-        tone="amber"
         invertDelta
         hint="classify ยังไม่จบ/ล้มเหลว หรือไม่มีสัญญาณให้จัดหมวดเลย"
       />
       <StatCard
-        icon={<Tags size={13} className="text-sky-500" />}
+        icon={<Tags size={15} />}
         label="อื่น ๆ (Other)"
         value={stats.other_count}
         prevValue={prevStats?.other_count}
-        tone="sky"
         hint="จัดหมวดสำเร็จ แต่ไม่ตรงกับหัวข้อที่มีอยู่ — enum อาจต้องเพิ่ม"
       />
       <StatCard
-        icon={<VolumeX size={13} className="text-gray-400" />}
+        icon={<VolumeX size={15} />}
         label="เงียบ/ขยะ (Noise)"
         value={stats.noise_count}
         prevValue={prevStats?.noise_count}
-        tone="gray"
         invertDelta
         hint="ไม่นับรวมในจำนวนบทสนทนา"
       />
@@ -56,7 +57,6 @@ function StatCard({
   value,
   prevValue,
   hint,
-  tone = "default",
   emphasis = false,
   invertDelta = false,
 }: {
@@ -65,16 +65,11 @@ function StatCard({
   value: number;
   prevValue?: number;
   hint?: string;
-  tone?: "default" | "amber" | "sky" | "gray";
   emphasis?: boolean;
   // เลขนี้ "น้อยลง = ดีขึ้น" ไหม (unclassified/noise ยิ่งน้อยยิ่งดี) — สลับสีขึ้น/ลงให้ตรงความหมายจริง
   // แทนที่จะยึดกฎ "ขึ้น=เขียวเสมอ" แบบตายตัวซึ่งจะหลอกตาให้ unclassified พุ่งขึ้นดูเหมือนเป็นเรื่องดี
   invertDelta?: boolean;
 }) {
-  const valueColor =
-    tone === "amber" ? "text-amber-700" : tone === "sky" ? "text-sky-700" : "text-gray-900";
-  const border = tone === "amber" ? "border-amber-100" : tone === "sky" ? "border-sky-100" : "border-gray-100";
-
   let deltaPct: number | null = null;
   if (prevValue !== undefined && prevValue !== null) {
     if (prevValue === 0) {
@@ -89,22 +84,28 @@ function StatCard({
   const deltaClass = isGood === null ? "text-gray-400" : isGood ? "text-emerald-600" : "text-red-500";
 
   return (
-    <div className={`bg-white rounded-xl border ${border} shadow-sm p-4 flex flex-col gap-2.5`}>
-      <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.78rem", fontWeight: 600 }} title={hint}>
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
+      <span className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center shrink-0">
         {icon}
-        {label}
       </span>
-      <p
-        className={valueColor}
-        style={{
-          fontSize: emphasis ? "1.9rem" : "1.6rem",
-          fontWeight: 700,
-          letterSpacing: "-0.04em",
-          lineHeight: 1,
-        }}
-      >
-        {value.toLocaleString("th-TH")}
-      </p>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-gray-500" style={{ fontSize: "0.78rem", fontWeight: 500 }} title={hint}>
+          {label}
+        </span>
+        <p
+          className="text-gray-900"
+          style={{
+            fontSize: emphasis ? "1.9rem" : "1.6rem",
+            fontWeight: 700,
+            letterSpacing: "-0.04em",
+            lineHeight: 1,
+          }}
+        >
+          {value.toLocaleString("th-TH")}
+        </p>
+      </div>
+
       {deltaPct !== null && (
         <span className={`flex items-center gap-1 ${deltaClass}`} style={{ fontSize: "0.7rem", fontWeight: 600 }}>
           {isUp ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
