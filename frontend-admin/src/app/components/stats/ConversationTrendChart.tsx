@@ -1,4 +1,5 @@
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useMemo, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TrendingUp } from "lucide-react";
 import type { DailyConversationCountOut } from "../../../lib/api";
 
@@ -10,25 +11,49 @@ function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
 }
 
+const DARK = "#111827"; // gray-900 — เดียวกับตัวเลข KPI/แถบ storage ใน StatusPanel.tsx
+const LIGHT = "#E5E7EB"; // gray-200
+
 export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartProps) {
-  const data = dailyCounts.map((d) => ({ ...d, label: formatDay(d.date) }));
+  const data = useMemo(() => dailyCounts.map((d) => ({ ...d, label: formatDay(d.date) })), [dailyCounts]);
+  // ค่าเริ่มต้นที่ไฮไลต์ = วันที่มีบทสนทนาเยอะสุดในช่วงที่เลือก (ไม่ใช่วันสุดท้าย) — ให้เห็นจุดเด่นทันที
+  // โดยไม่ต้องเอาเมาส์ไปชี้ก่อน
+  const peakIndex = useMemo(() => {
+    if (data.length === 0) return -1;
+    let idx = 0;
+    for (let i = 1; i < data.length; i++) if (data[i].count > data[idx].count) idx = i;
+    return idx;
+  }, [data]);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const highlighted = activeIndex ?? peakIndex;
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
-      <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
-        <TrendingUp size={13} className="text-gray-400" />
-        แนวโน้มจำนวนบทสนทนาย้อนหลัง
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
+          <TrendingUp size={13} className="text-gray-400" />
+          แนวโน้มจำนวนบทสนทนาย้อนหลัง
+        </span>
+        {highlighted >= 0 && data[highlighted] && (
+          <span
+            className="rounded-full px-2.5 py-1 bg-gray-100 text-gray-700"
+            style={{ fontSize: "0.72rem", fontWeight: 600 }}
+          >
+            {data[highlighted].label} · {data[highlighted].count.toLocaleString("th-TH")} บทสนทนา
+          </span>
+        )}
+      </div>
 
       <div style={{ width: "100%", height: 220 }}>
         <ResponsiveContainer>
-          <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-            <defs>
-              <linearGradient id="conversationTrendFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#111827" stopOpacity={0.18} />
-                <stop offset="100%" stopColor="#111827" stopOpacity={0} />
-              </linearGradient>
-            </defs>
+          <BarChart
+            data={data}
+            margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
+            onMouseMove={(s) => {
+              if (s && typeof s.activeTooltipIndex === "number") setActiveIndex(s.activeTooltipIndex);
+            }}
+            onMouseLeave={() => setActiveIndex(null)}
+          >
             <CartesianGrid vertical={false} stroke="#F3F4F6" />
             <XAxis
               dataKey="label"
@@ -45,6 +70,7 @@ export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartPr
               width={28}
             />
             <Tooltip
+              cursor={{ fill: "#F9FAFB" }}
               formatter={(value: number) => [`${value.toLocaleString("th-TH")} บทสนทนา`, ""]}
               labelStyle={{ fontSize: "0.75rem", color: "#374151" }}
               contentStyle={{
@@ -54,14 +80,12 @@ export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartPr
                 boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
               }}
             />
-            <Area
-              type="monotone"
-              dataKey="count"
-              stroke="#111827"
-              strokeWidth={1.75}
-              fill="url(#conversationTrendFill)"
-            />
-          </AreaChart>
+            <Bar dataKey="count" radius={[4, 4, 4, 4]} maxBarSize={28}>
+              {data.map((_, i) => (
+                <Cell key={i} fill={i === highlighted ? DARK : LIGHT} />
+              ))}
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
       </div>
     </div>

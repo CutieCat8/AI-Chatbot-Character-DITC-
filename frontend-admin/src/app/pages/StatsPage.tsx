@@ -4,11 +4,25 @@ import { getConversationStats, type ConversationStatsOut } from "../../lib/api";
 import { DateRangeControl, defaultDateRange } from "../components/stats/DateRangeControl";
 import { ConversationStatCards } from "../components/stats/ConversationStatCards";
 import { ConversationTrendChart } from "../components/stats/ConversationTrendChart";
-import { TopicBreakdownList } from "../components/stats/TopicBreakdownList";
+import { TopicDonutCard } from "../components/stats/TopicDonutCard";
+import { ConversationQualityDonut } from "../components/stats/ConversationQualityDonut";
+
+// ช่วงก่อนหน้าที่ "ยาวเท่ากัน" ต่อจากช่วงที่เลือกทันที — ใช้ทำ delta "เทียบช่วงก่อนหน้า" บนการ์ด KPI
+// ไม่ hardcode เป็น "เทียบสัปดาห์ก่อน" เพราะผู้ใช้เลือกช่วงวันที่เองได้ยาวสั้นไม่เท่ากัน คำนวณสด ๆ
+// ฝั่ง frontend ล้วน ไม่แตะ backend เลย (เหมือน preset ใน DateRangeControl.tsx)
+function previousPeriod(start: string, end: string): [string, string] {
+  const s = new Date(`${start}T00:00:00Z`);
+  const e = new Date(`${end}T00:00:00Z`);
+  const spanDays = Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
+  const prevEnd = new Date(s.getTime() - 86_400_000);
+  const prevStart = new Date(prevEnd.getTime() - (spanDays - 1) * 86_400_000);
+  return [prevStart.toISOString().slice(0, 10), prevEnd.toISOString().slice(0, 10)];
+}
 
 export default function StatsPage() {
   const [[start, end], setRange] = useState<[string, string]>(defaultDateRange());
   const [stats, setStats] = useState<ConversationStatsOut | null>(null);
+  const [prevStats, setPrevStats] = useState<ConversationStatsOut | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,10 +31,17 @@ export default function StatsPage() {
     setLoading(true);
     setError(null);
 
-    getConversationStats(start, end)
-      .then((res) => {
+    const [prevStart, prevEnd] = previousPeriod(start, end);
+
+    Promise.all([
+      getConversationStats(start, end),
+      // เทียบช่วงก่อนหน้าเป็นของเสริม ไม่ใช่ข้อมูลหลัก — พังได้โดยไม่บล็อกหน้าเลย (แค่ไม่มี delta โชว์)
+      getConversationStats(prevStart, prevEnd).catch(() => null),
+    ])
+      .then(([res, prevRes]) => {
         if (cancelled) return;
         setStats(res);
+        setPrevStats(prevRes);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -46,14 +67,15 @@ export default function StatsPage() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-screen-xl mx-auto w-full px-8 py-10">
-        <h1 className="text-gray-900" style={{ fontSize: "1.75rem", fontWeight: 700, letterSpacing: "-0.03em" }}>
-          สถิติบทสนทนา
-        </h1>
-        <p className="text-gray-400 mt-1.5" style={{ fontSize: "0.85rem" }}>
-          สรุปหัวข้อบทสนทนาที่ผู้ใช้ถาม DITC CAT — ไม่มีบทสนทนาดิบ เก็บแค่หัวข้อสรุปตามข้อกำหนด PDPA
-        </p>
-
-        <div className="mt-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-gray-900" style={{ fontSize: "1.75rem", fontWeight: 700, letterSpacing: "-0.03em" }}>
+              สถิติบทสนทนา
+            </h1>
+            <p className="text-gray-400 mt-1.5" style={{ fontSize: "0.85rem" }}>
+              สรุปหัวข้อบทสนทนาที่ผู้ใช้ถาม DITC CAT — ไม่มีบทสนทนาดิบ เก็บแค่หัวข้อสรุปตามข้อกำหนด PDPA
+            </p>
+          </div>
           <DateRangeControl start={start} end={end} onChange={(s, e) => setRange([s, e])} />
         </div>
 
@@ -83,11 +105,19 @@ export default function StatsPage() {
           )}
 
           {!loading && !error && stats && !isEmpty && (
-            <>
-              <ConversationStatCards stats={stats} />
-              <ConversationTrendChart dailyCounts={stats.daily_counts} />
-              <TopicBreakdownList topics={stats.top_topics} />
-            </>
+            <div className="grid grid-cols-12 gap-4 items-start">
+              <div className="col-span-12 xl:col-span-8 flex flex-col gap-4">
+                <ConversationStatCards stats={stats} prevStats={prevStats} />
+                <ConversationTrendChart dailyCounts={stats.daily_counts} />
+              </div>
+              <div className="col-span-12 xl:col-span-4 flex flex-col gap-4">
+                <TopicDonutCard topics={stats.top_topics} />
+                <ConversationQualityDonut
+                  totalConversations={stats.total_conversations}
+                  noiseCount={stats.noise_count}
+                />
+              </div>
+            </div>
           )}
         </div>
       </div>
