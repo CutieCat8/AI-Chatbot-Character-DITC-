@@ -486,3 +486,97 @@ def test_flag_off_topic_still_works_unaffected_by_session_tracker(
     # เกณฑ์ NOISE (แก้ 2026-09-09): เรียก flag_off_topic แล้วต้องไม่ใช่ NOISE — เป็นคำถามจริงจากคน
     # จริงแค่นอกขอบเขต ต้องนับเป็นบทสนทนาจริง (ดู test_session_tracker_classify.py สำหรับเทสละเอียด)
     assert closed[0].status != "noise"
+
+
+def test_flag_conversation_end_closes_session_immediately_without_waiting_for_timeout(
+    monkeypatch: pytest.MonkeyPatch, db
+) -> None:
+    """ฟีเจอร์นับ session ให้แม่นขึ้น (2026-09-17) — flag_conversation_end ต้องตัด analytics session
+    ทันทีหลังเทิร์นลาจบ (turn_complete) โดยไม่ต้องรอ silence timeout เลย (ตั้ง timeout ยาวพอสมควร 5s
+    ในเทสนี้เพื่อพิสูจน์ว่าการปิดครั้งแรกไม่ได้มาจาก watchdog timeout) และการพูดต่อทันทีหลังจากนั้น
+    (ก่อนครบ 5s) ต้องถูกนับเป็น session ใหม่แยกกันไปเลย ไม่รวมกับ session เดิม — พิสูจน์ประเด็นหลักที่
+    ผู้ว่าจ้างต้องการ: คนคุยจบพูดลาแล้วคนถัดไปมาคุยต่อทันทีไม่ควรถูกนับเป็นบทสนทนาเดียวกัน
+
+    ยืนยันด้วยว่าประโยคลาสุดท้าย (turn_complete ของเทิร์นที่เรียก tool) ยังถูกนับรวมอยู่ใน session
+    เดิม (message_count == 2 ไม่ใช่ 1) — ไม่ใช่หลุดไปเป็น session ใหม่แยกเดี่ยว ๆ ที่มีแค่ turn บอท
+    (ดู docstring ของ flag_conversation_end()/close_now() ใน session_tracker.py ว่าทำไมต้องรอปิดหลัง
+    turn_complete ไม่ใช่ปิดทันทีตอน tool_call มาถึง)
+
+    session ที่ 2 ถูกปล่อยให้ปิดด้วย silence timeout ปกติ (เหมือน
+    test_session_tracker_watchdog_ignores_everything_except_record_turn) ขณะที่ ws ยังเปิดอยู่ —
+    ไม่ปิดผ่านการหลุด ws ตอน `with` block จบ เพราะพบว่า Starlette TestClient's BlockingPortal ปิด
+    เทรดพื้นหลังทันทีที่ `with` block จบ (`exit_stack.close()`) โดยไม่รับประกันว่า finally ของ
+    voice_ws() (ซึ่งมี `await` แบบ executor เพิ่มอีกรอบ) จะรันจบก่อน — เป็นข้อจำกัดของ test harness
+    เอง ไม่ใช่บั๊กจริงของแอป (production จริงรันบน uvicorn ซึ่งรอ app คืน control ก่อนนับว่าปิด
+    connection เสมอ) เทสนี้เลี่ยงเงื่อนไข race นั้นโดยพิสูจน์ผ่าน path ที่ deterministic กว่า (watchdog
+    timeout ระหว่าง ws ยังเปิดอยู่ ซึ่งไฟล์นี้พิสูจน์แล้วว่าเชื่อถือได้ในเทสอื่นข้างบน)"""
+    monkeypatch.setattr(
+        "app.services.session_tracker.classify_session_topics", lambda signals: (["other"], "stubbed")
+    )
+    end_call = make_tool_call_response("flag_conversation_end", {})
+    session = FakeSession()
+    monkeypatch.setattr(voice_module.genai, "Client", _make_fake_genai_client_class(session))
+    monkeypatch.setattr(voice_module.settings, "GEMINI_API_KEY", "fake-key-for-test")
+    # นานพอที่จะพิสูจน์ว่าการปิดครั้งแรกไม่ได้มาจาก timeout แต่สั้นพอให้เทสรอ session ที่ 2 ปิดเองได้จริง
+    monkeypatch.setattr(voice_module.settings, "BACKEND_SESSION_SILENCE_TIMEOUT_S", 0.3)
+
+    max_id_before = _max_session_id(db)
+
+    app = _build_test_app()
+    client = TestClient(app)
+    with client.websocket_connect("/api/voice/ws") as ws:
+        # เทิร์นที่ 1: ผู้ใช้พูดลา -> Gemini เรียก flag_conversation_end แล้วพูดคำลากลับ
+        ws.send_json({"type": "speech_start"})
+        ws.send_bytes(b"\x00" * 640)
+        ws.send_json({"type": "speech_end"})
+        session.push_turn([end_call, make_response(transcript="ยินดีค่ะ ไว้เจอกันใหม่นะคะ", turn_complete=True)])
+        _drain_until(ws, "turn_complete")
+
+        assert len(session.tool_responses) == 1  # ยัง ack กลับให้ Gemini ปกติเหมือน tool อื่น
+
+        # ต้องปิดทันที (ภายในเวลาที่สั้นกว่า 0.3s เกณฑ์ silence มาก) — ยืนยันว่ามาจาก flag_conversation_end
+        # จริง ไม่ใช่ watchdog timeout (ถ้าเป็น timeout ต้องรอถึง ~0.3s ถึงจะเห็นแถวนี้)
+        first: list[ConversationSession] = []
+        for _ in range(50):  # budget รวม ~0.1s < 0.3s เกณฑ์ timeout — ถ้าเจอแถวก่อนหมด budget นี้ ต้องมาจาก flag เท่านั้น
+            db.expire_all()
+            first = (
+                db.query(ConversationSession)
+                .filter(ConversationSession.id > max_id_before)
+                .order_by(ConversationSession.id)
+                .all()
+            )
+            if first:
+                break
+            time.sleep(0.002)
+        assert len(first) == 1, "flag_conversation_end ต้องปิด session ทันทีโดยไม่ต้องรอ silence timeout"
+        assert first[0].end_reason == SessionEndReason.USER_GOODBYE
+        # ประโยคลาสุดท้าย (turn_complete ของเทิร์นนี้เอง) ต้องรวมอยู่ใน session เดิม ไม่ใช่หลุดไปเป็น
+        # session ใหม่แยกเดี่ยว ๆ ที่มีแค่ 1 turn ฝั่งบอท
+        assert first[0].message_count == 2
+
+        # เทิร์นที่ 2: มีคนพูดต่อทันที (ยังไม่ครบ 0.3s ห่างจากเทิร์นแรกแน่นอน) — ต้องนับเป็น session ใหม่
+        ws.send_json({"type": "speech_start"})
+        ws.send_bytes(b"\x00" * 640)
+        ws.send_json({"type": "speech_end"})
+        session.push_turn([make_response(transcript="สวัสดีค่ะ", turn_complete=True)])
+        _drain_until(ws, "turn_complete")
+
+        # ปล่อยให้ session ที่ 2 ปิดเองด้วย silence timeout (ขณะ ws ยังเปิดอยู่ — deterministic,
+        # ไม่พึ่งจังหวะปิด ws ของ TestClient)
+        all_new: list[ConversationSession] = []
+        for _ in range(500):
+            db.expire_all()
+            all_new = (
+                db.query(ConversationSession)
+                .filter(ConversationSession.id > max_id_before)
+                .order_by(ConversationSession.id)
+                .all()
+            )
+            if len(all_new) >= 2:
+                break
+            time.sleep(0.01)
+        assert len(all_new) == 2, f"คนพูดต่อหลัง flag_conversation_end ต้องถูกนับเป็น session ใหม่แยกกัน แต่ได้ {len(all_new)}"
+        assert all_new[0].id == first[0].id
+        assert all_new[1].started_at > all_new[0].ended_at
+        assert all_new[1].message_count == 2  # speech_start (user) + turn_complete (bot) ของเทิร์นที่ 2
+        assert all_new[1].end_reason == SessionEndReason.TIMEOUT

@@ -160,6 +160,7 @@ class SessionTracker:
         self._session_started_at: datetime | None = None
         self._activity_event = asyncio.Event()
         self._watchdog_task: asyncio.Task | None = None
+        self._pending_conversation_end: bool = False
 
     def start(self) -> None:
         self._watchdog_task = asyncio.create_task(self._watchdog())
@@ -203,6 +204,30 @@ class SessionTracker:
         ได้" ไม่ได้)"""
         self._off_topic_flagged = True
 
+    def flag_conversation_end(self) -> None:
+        """เรียกจาก tool call flag_conversation_end ใน routers/voice.py ทันทีตอน tool_call มาถึง
+        (sync ล้วน ไม่มี DB I/O ตรงนี้) — แค่ตั้ง flag ไว้ก่อนเฉย ๆ ไม่ปิด session ทันที เพราะ ณ จุด
+        ที่ tool_call มาถึง เทิร์นปัจจุบัน (คำพูดลาที่แมวกำลังจะพูด) ยังไม่จบ (turn_complete ยังไม่มา)
+        ถ้าปิด session ตรงนี้เลย ประโยคลาสุดท้ายของแมวเองจะไปตกอยู่ใน session ถัดไปที่เพิ่งถูกเคลียร์
+        (กลายเป็น session ใหม่ที่มีแค่ 1 turn ฝั่งบอท ไม่มี turn ผู้ใช้เลย — เป็น NOISE ปลอมที่เกิดจาก
+        การลาของแมวเองทุกครั้ง ไม่ใช่คนเดินผ่านจริง) — ดู close_now()/pending_conversation_end() ที่
+        routers/voice.py เรียกหลัง record_turn(Speaker.BOT) ของเทิร์นนี้เสร็จแล้วเท่านั้น"""
+        self._pending_conversation_end = True
+
+    def pending_conversation_end(self) -> bool:
+        """routers/voice.py เช็คตัวนี้ทุกครั้งหลัง record_turn(Speaker.BOT) เพื่อรู้ว่าต้องเรียก
+        close_now() ต่อทันทีไหม (ดู flag_conversation_end() ว่าทำไมต้องรอถึงจุดนี้)"""
+        return self._pending_conversation_end
+
+    async def close_now(self, end_reason: SessionEndReason) -> None:
+        """ตัด analytics session ทันที ไม่รอ silence timeout — เรียกจาก routers/voice.py เท่านั้น
+        หลัง pending_conversation_end() เป็น True ไม่แตะ WS/mic/audio ใด ๆ เลย เป็นแค่ boundary เชิง
+        นับสถิติ ถ้ามีคนพูดต่อหลังจากนี้ (จะคนเดิมหรือคนใหม่ก็ตาม) ก่อนครบ silence timeout จะถูกนับ
+        เป็น session ใหม่ทันที เพราะ _turns ถูกล้างไปแล้วใน _close_current_session"""
+        self._pending_conversation_end = False
+        loop = asyncio.get_running_loop()
+        await self._close_current_session(loop, end_reason)
+
     async def _watchdog(self) -> None:
         loop = asyncio.get_running_loop()
         while True:
@@ -238,6 +263,7 @@ class SessionTracker:
         self._signals = []
         self._knowledge_search_called = False
         self._off_topic_flagged = False
+        self._pending_conversation_end = False
         self._session_started_at = None
         assert started_at is not None
 

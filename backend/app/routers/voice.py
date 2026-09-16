@@ -79,7 +79,20 @@ SYSTEM_INSTRUCTION = (
     "ช่วยตอบคำถามเรื่อง CAMT/DITC ได้ "
     "ข้อยกเว้นทั้งสองข้อนี้ใช้เฉพาะกรณีที่ไม่มีคำถามอื่นเกี่ยวกับเรื่องนอกขอบเขต CAMT/DITC แนบมาด้วยเท่านั้น "
     "— ถ้ามีคำถามนอกขอบเขตจริงแนบมาด้วย (เช่น \"สวัสดีครับ ขอถามเรื่องดินฟ้าอากาศหน่อย\") ยังต้องเรียก "
-    "flag_off_topic ตามปกติสำหรับส่วนคำถามนั้น"
+    "flag_off_topic ตามปกติสำหรับส่วนคำถามนั้น "
+    "เมื่อผู้ใช้พูดจบหนึ่งเทิร์น ให้ประเมินว่าผู้ใช้ต้องการจบบทสนทนาหรือไม่ เรียก tool "
+    "flag_conversation_end เฉพาะเมื่อเข้าเงื่อนไขนี้เท่านั้น — "
+    "เรียก (ถือว่าจบ): ประโยคเป็นการล่ำลาหรือปฏิเสธอย่างชัดเจน โดยไม่มีคำถามหรือคำขอแนบมาในประโยคเดียวกัน "
+    "เช่น \"บายบาย\" \"แค่นี้แหละ\" \"พอแล้ว\" \"ไม่มีอะไรแล้ว\" \"ขอบคุณครับ\" (จบห้วน ๆ ไม่มีอะไรต่อท้าย) "
+    "\"ขอบคุณมากค่ะ\" (ไม่มีคำถามตามมา) — "
+    "ห้ามเรียก (ถือว่ายังไม่จบ): มีคำขอบคุณแต่ตามด้วยคำถาม คำขอ หรือคำเชื่อมที่บ่งชี้ว่าจะพูดต่อในประโยค "
+    "เดียวกันหรือทันทีถัดไป เช่น \"ขอบคุณครับ แล้วถ้าอยากรู้เรื่อง...\" \"ขอบคุณค่ะ อีกอย่างนึงคือ...\" "
+    "\"ขอบคุณ งั้นถามต่ออีกนิดนึงนะ\" หรือคำขอบคุณที่เป็นการตอบรับคำตอบก่อนหน้า แต่บริบทก่อนหน้ายังเป็น "
+    "คำถามเปิดที่ผู้ใช้อาจถามต่อได้ตามธรรมชาติ — "
+    "หากไม่แน่ใจว่าเข้าเงื่อนไขไหน ให้เลือกไม่เรียก แล้วปล่อยให้ระบบ silence timeout จัดการแทน การไม่ปิด "
+    "session ไม่สร้างความเสียหาย แต่การเรียกผิดจังหวะทำให้บทสนทนาต่อเนื่องอันเดียวถูกนับเป็นสอง sessions "
+    "ในข้อมูลสถิติ — tool นี้ใช้แค่นับสถิติเท่านั้น ไม่ตัดการเชื่อมต่อเสียงหรือหยุดคุยจริง หลังเรียกแล้ว "
+    "ยังคุยต่อกับผู้ใช้ได้ตามปกติทุกประการถ้าผู้ใช้พูดต่อ"
 )
 
 SEARCH_FUNCTION = types.FunctionDeclaration(
@@ -113,6 +126,24 @@ OFF_TOPIC_FUNCTION = types.FunctionDeclaration(
             "topic": types.Schema(type=types.Type.STRING, description="สรุปสั้น ๆ ว่าผู้ใช้ถามเรื่องอะไร (ไว้ดู log เฉย ๆ ไม่ใช้ตัดสินอะไรต่อ)"),
         },
         required=["topic"],
+    ),
+)
+
+# ฟีเจอร์นับ session ให้แม่นขึ้น: แยกเจตนา "จบบทสนทนา" ของผู้ใช้ออกจาก silence timeout 10 วิ
+# (ดู session_tracker.py: flag_conversation_end()/pending_conversation_end()/close_now()) — เหมือน
+# flag_off_topic ทุกประการ คือ structured tool call ให้ Gemini เรียกเอง ห้าม guess จาก keyword ใน
+# transcript เด็ดขาด (โปรเจกต์นี้เจอปัญหา keyword พังมาแล้ว 2 รอบกับ off-topic/angry detection)
+CONVERSATION_END_FUNCTION = types.FunctionDeclaration(
+    name="flag_conversation_end",
+    description=(
+        "เรียกเมื่อผู้ใช้ส่งสัญญาณจบบทสนทนาอย่างชัดเจน (คำล่ำลา/ปฏิเสธ ไม่มีคำถามหรือคำขอแนบมาด้วยในเทิร์น "
+        "เดียวกัน) ตามเกณฑ์ที่ system instruction กำหนด ใช้แค่สำหรับนับสถิติจำนวนบทสนทนาให้แม่นขึ้นเท่านั้น "
+        "ไม่ตัดการเชื่อมต่อเสียงใด ๆ ทั้งสิ้น หลังเรียกแล้วยังคุยต่อกับผู้ใช้ได้ตามปกติ ถ้าไม่แน่ใจว่าจบจริง "
+        "หรือไม่ ห้ามเรียก"
+    ),
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={},
     ),
 )
 
@@ -180,7 +211,7 @@ async def voice_ws(websocket: WebSocket) -> None:
             # ไฟล์นี้ตกหล่นไปจาก voice_pipeline_dev.py ที่แก้ไว้แล้ว
             input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["th-TH", "en-US"]),
             system_instruction=SYSTEM_INSTRUCTION,
-            tools=[types.Tool(function_declarations=[SEARCH_FUNCTION, OFF_TOPIC_FUNCTION])],
+            tools=[types.Tool(function_declarations=[SEARCH_FUNCTION, OFF_TOPIC_FUNCTION, CONVERSATION_END_FUNCTION])],
             # ปิด automatic_activity_detection ของ Gemini เอง + ให้ browser (useVoiceSocket.ts) เป็นคนบอก
             # จุดเริ่ม/จบพูดเองผ่านข้อความ {"type":"speech_start"|"speech_end"} แทน (2026-09-06 แก้บั๊ก
             # "คุยได้แค่รอบเดียวต่อการกดปุ่ม") — วินิจฉัยแล้วว่า AAD ของโมเดลนี้ (gemini-3.1-flash-live-
@@ -293,6 +324,18 @@ async def voice_ws(websocket: WebSocket) -> None:
                                 types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})
                             )
                             continue
+                        if fc.name == "flag_conversation_end":
+                            # แค่ตั้ง flag ไว้ก่อน — ตัด boundary จริงหลัง turn_complete ของเทิร์นนี้
+                            # เอง (ดู gemini_to_browser ด้านล่าง) ไม่ใช่ตัดทันทีตรงนี้ ไม่งั้นประโยคลา
+                            # สุดท้ายที่แมวกำลังจะพูด (ยังไม่จบเทิร์น ณ จุดที่ tool_call มาถึง) จะกลาย
+                            # เป็น session ใหม่แยกเดี่ยว ๆ ที่มีแค่ turn ฝั่งบอท ไม่มี turn ผู้ใช้เลย —
+                            # ดู docstring ของ flag_conversation_end() ใน session_tracker.py
+                            logger.info("voice conversation-end flagged")
+                            tracker.flag_conversation_end()
+                            function_responses.append(
+                                types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})
+                            )
+                            continue
                         q = fc.args.get("query", "")
                         logger.info("voice tool call: query=%r", q)
                         # สัญญาณให้ topic classifier ตอนปิด session — query ผ่านการแปลงจาก Gemini
@@ -352,6 +395,11 @@ async def voice_ws(websocket: WebSocket) -> None:
                     # analytics session ด้วย (ดู session_tracker.py) เกิดเฉพาะตอนเทิร์นจบจริง
                     # ไม่เกิดตอน GoAway (นั่นเป็นคนละ response type ไม่เข้า branch นี้)
                     tracker.record_turn(Speaker.BOT)
+                    if tracker.pending_conversation_end():
+                        # ตัด analytics session ตอนนี้ (หลัง turn ลาสุดท้ายถูกนับเข้า session เดิม
+                        # เรียบร้อยแล้ว) ไม่แตะ WS/mic/audio ใด ๆ เลย — คุยต่อได้ปกติถ้ามีคนพูดต่อ
+                        # (จะนับเป็น session ใหม่ทันทีเพราะ turns ถูกล้างไปแล้วที่นี่)
+                        await tracker.close_now(SessionEndReason.USER_GOODBYE)
                     await websocket.send_json({"type": "turn_complete"})
 
     resumption_handle: str | None = None
