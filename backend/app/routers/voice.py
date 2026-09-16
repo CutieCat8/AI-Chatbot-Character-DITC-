@@ -163,6 +163,13 @@ async def voice_ws(websocket: WebSocket) -> None:
     def build_config(resumption_handle: str | None) -> types.LiveConnectConfig:
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
+            # ล็อกเสียงพากย์ไว้ตายตัว — ไม่ตั้งไว้แต่แรกทำให้ Gemini สุ่มเสียงชาย/หญิงเองทุก session ใหม่
+            # (ผู้ใช้จริงได้ยินสลับไปมาไม่คงที่ทุกครั้งที่ปลุก ตรวจแล้วว่าไม่มี speech_config เลยในโค้ด)
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Despina"),
+                ),
+            ),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             # จำกัด language_codes เสมอตามกฎ CLAUDE.md (ห้าม auto-detect เปิดกว้างทุกภาษา) — เคยเจอบั๊ก
             # เดาเป็นอินโดนีเซียมาแล้วจริงตอนทดสอบเสียงคนจริง (ดู docs/adr/voice-stt-real-world-test.md)
