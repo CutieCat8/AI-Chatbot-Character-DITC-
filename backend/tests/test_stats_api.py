@@ -34,22 +34,29 @@ def _utc(y: int, m: int, d: int, hour: int = 12) -> datetime:
 
 def _make_session(
     db,
+    created_ids: list[int],
     started_at: datetime,
     tags: list[str] | None = None,
     status: SessionStatus = SessionStatus.UNCLASSIFIED,
 ) -> None:
-    db.add(
-        ConversationSession(
-            started_at=started_at,
-            ended_at=started_at,
-            language=Language.TH,
-            tags=tags,
-            other_hint=None,
-            message_count=2,
-            status=status,
-            end_reason=SessionEndReason.UNKNOWN,
-        )
+    """flush ทันทีแล้วเก็บ id ที่เพิ่ง insert ไว้ใน created_ids — teardown จะลบเฉพาะ id พวกนี้เท่านั้น
+    (ดู _cleanup_created_sessions) ห้ามกลับไปใช้ db.query(ConversationSession).delete() แบบไม่มี
+    filter อีกเด็ดขาด เคยลบข้อมูล conversation_sessions ทั้งตารางไปแล้วจริงในเดฟ DB (2026-09-17)
+    ตอน pytest รันทับข้อมูลจริงหลายร้อยแถวที่สะสมมาจากการทดสอบตู้จริงหลายวัน กู้คืนไม่ได้เพราะ
+    conversation_turns ไม่เก็บเนื้อหา/tag ไว้เลยตามดีไซน์ PDPA"""
+    row = ConversationSession(
+        started_at=started_at,
+        ended_at=started_at,
+        language=Language.TH,
+        tags=tags,
+        other_hint=None,
+        message_count=2,
+        status=status,
+        end_reason=SessionEndReason.UNKNOWN,
     )
+    db.add(row)
+    db.flush()
+    created_ids.append(row.id)
 
 
 def _build_app_with_fake_admin() -> FastAPI:
@@ -70,14 +77,17 @@ def db():
     session.close()
 
 
-@pytest.fixture(autouse=True)
-def _clear_conversation_sessions(db):
-    """เทสนี้ seed ConversationSession ตรง ๆ ต้องล้างก่อน/หลังกันปนกับเทสไฟล์อื่นที่รันในโปรเซสเดียวกัน"""
-    db.query(ConversationSession).delete()
-    db.commit()
-    yield
-    db.query(ConversationSession).delete()
-    db.commit()
+@pytest.fixture()
+def created_ids(db):
+    """เก็บ id ของแถวที่เทสนี้ insert เองเท่านั้น (ผ่าน _make_session) — teardown ลบเฉพาะ id พวกนี้
+    ตรง ๆ ด้วย .in_() ไม่แตะแถวอื่นในตารางเด็ดขาด ต่างจาก fixture เดิมที่เคย
+    db.query(ConversationSession).delete() แบบไม่มี filter จนลบข้อมูลจริงทั้งตารางไปโดยไม่ตั้งใจ
+    (ดูคอมเมนต์เต็มที่ _make_session)"""
+    ids: list[int] = []
+    yield ids
+    if ids:
+        db.query(ConversationSession).filter(ConversationSession.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
 
 
 def test_requires_authentication() -> None:
@@ -106,13 +116,13 @@ def test_start_after_end_returns_422() -> None:
     assert resp.status_code == 422
 
 
-def test_daily_counts_topics_noise_and_unclassified_split_correctly(db) -> None:
-    _make_session(db, _utc(2026, 9, 1), tags=["tuition_fee"])
-    _make_session(db, _utc(2026, 9, 1), tags=["tuition_fee", "admission"])
-    _make_session(db, _utc(2026, 9, 2), tags=None)  # ยัง unclassified (classify ไม่สำเร็จ/ยังไม่จบ)
-    _make_session(db, _utc(2026, 9, 2), tags=["other"], status=SessionStatus.UNCLASSIFIED)
-    _make_session(db, _utc(2026, 9, 2), tags=["other", "curriculum_se"])
-    _make_session(db, _utc(2026, 9, 3), tags=["curriculum_se"], status=SessionStatus.NOISE)
+def test_daily_counts_topics_noise_and_unclassified_split_correctly(db, created_ids) -> None:
+    _make_session(db, created_ids, _utc(2026, 9, 1), tags=["tuition_fee"])
+    _make_session(db, created_ids, _utc(2026, 9, 1), tags=["tuition_fee", "admission"])
+    _make_session(db, created_ids, _utc(2026, 9, 2), tags=None)  # ยัง unclassified (classify ไม่สำเร็จ/ยังไม่จบ)
+    _make_session(db, created_ids, _utc(2026, 9, 2), tags=["other"], status=SessionStatus.UNCLASSIFIED)
+    _make_session(db, created_ids, _utc(2026, 9, 2), tags=["other", "curriculum_se"])
+    _make_session(db, created_ids, _utc(2026, 9, 3), tags=["curriculum_se"], status=SessionStatus.NOISE)
     db.commit()
 
     app = _build_app_with_fake_admin()
@@ -155,10 +165,10 @@ def test_daily_counts_topics_noise_and_unclassified_split_correctly(db) -> None:
     assert "ต้องใส่" not in other_label
 
 
-def test_date_range_excludes_sessions_outside_range(db) -> None:
-    _make_session(db, _utc(2026, 8, 31, hour=23), tags=["tuition_fee"])  # ก่อนช่วงที่เลือก
-    _make_session(db, _utc(2026, 9, 5, hour=1), tags=["tuition_fee"])  # หลังช่วงที่เลือก
-    _make_session(db, _utc(2026, 9, 2), tags=["tuition_fee"])  # อยู่ในช่วง
+def test_date_range_excludes_sessions_outside_range(db, created_ids) -> None:
+    _make_session(db, created_ids, _utc(2026, 8, 31, hour=23), tags=["tuition_fee"])  # ก่อนช่วงที่เลือก
+    _make_session(db, created_ids, _utc(2026, 9, 5, hour=1), tags=["tuition_fee"])  # หลังช่วงที่เลือก
+    _make_session(db, created_ids, _utc(2026, 9, 2), tags=["tuition_fee"])  # อยู่ในช่วง
     db.commit()
 
     app = _build_app_with_fake_admin()
