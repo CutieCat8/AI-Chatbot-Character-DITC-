@@ -8,10 +8,10 @@ interface TopicDonutCardProps {
 }
 
 // ไล่โทนเทาเข้ม->อ่อนเหมือนแถบ Storage ใน StatusPanel.tsx (ไม่ใช้สีหลากเฉด — คงโทนเดียวกับที่เหลือ
-// ของแอป) ยกเว้น "other" ที่ยังใช้ sky ตามธรรมเนียมเดิม (TopicBreakdownList.tsx ก่อนหน้านี้ก็ไฮไลต์
-// other เป็น sky เหมือนกัน — หมายถึง "จัดหมวดสำเร็จแต่ไม่ตรง enum ที่มี" ต้องการให้สังเกตเห็นง่าย)
+// ของแอป) ยกเว้น "other" ที่ไฮไลต์แยกให้สังเกตง่าย — เดิมใช้ sky แต่ชนความหมาย "syncing/live" ที่
+// sky มีอยู่แล้วใน StatusPanel.tsx เปลี่ยนมาใช้ teal แทน (2026-09-17 ผู้ว่าจ้างขอ ไม่เข้าธีม)
 const GRAY_RAMP = ["#111827", "#4B5563", "#9CA3AF", "#D1D5DB", "#E5E7EB"];
-const OTHER_COLOR = "#38BDF8"; // sky-400
+const OTHER_COLOR = "#14B8A6"; // teal-500
 const MAX_SLICES = 4;
 
 export function TopicDonutCard({ topics }: TopicDonutCardProps) {
@@ -75,7 +75,7 @@ export function TopicDonutCard({ topics }: TopicDonutCardProps) {
               <div key={s.topic} className="flex items-center gap-2.5">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: colorFor(s.topic, i) }} />
                 <span
-                  className={`flex-1 truncate ${s.topic === "other" ? "text-sky-600" : "text-gray-600"}`}
+                  className={`flex-1 truncate ${s.topic === "other" ? "text-teal-600" : "text-gray-600"}`}
                   style={{ fontSize: "0.78rem", fontWeight: 500 }}
                   title={s.label}
                 >

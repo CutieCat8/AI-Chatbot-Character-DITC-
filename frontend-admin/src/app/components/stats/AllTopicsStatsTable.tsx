@@ -63,7 +63,7 @@ export function AllTopicsStatsTable({ topics }: AllTopicsStatsTableProps) {
           {rows.map((t) => (
             <div key={t.topic} className="flex items-center gap-3">
               <span
-                className={`shrink-0 truncate ${t.topic === "other" ? "text-sky-600" : "text-gray-600"}`}
+                className={`shrink-0 truncate ${t.topic === "other" ? "text-teal-600" : "text-gray-600"}`}
                 style={{ fontSize: "0.76rem", width: "13rem" }}
                 title={t.label}
               >
@@ -71,7 +71,7 @@ export function AllTopicsStatsTable({ topics }: AllTopicsStatsTableProps) {
               </span>
               <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
                 <div
-                  className={t.topic === "other" ? "h-full bg-sky-400" : "h-full bg-gray-800"}
+                  className={t.topic === "other" ? "h-full bg-teal-500" : "h-full bg-gray-800"}
                   style={{ width: `${(t.count / max) * 100}%` }}
                 />
               </div>
