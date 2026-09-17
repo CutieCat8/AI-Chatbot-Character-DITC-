@@ -8,7 +8,7 @@ conversation.py — บันทึกสถิติบทสนทนา (PDPA
 """
 from datetime import datetime
 
-from sqlalchemy import ARRAY, DateTime, Integer, String, Text
+from sqlalchemy import ARRAY, Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -36,6 +36,14 @@ class ConversationSession(Base, TimestampMixin):
     other_hint: Mapped[str | None] = mapped_column(String(120))
 
 
+
+    # สอง flag นี้คือ knowledge_search_called/off_topic_flagged เดิมที่ session_tracker.py คำนวณไว้
+    # อยู่แล้วเพื่อตัดสิน NOISE (ดู docstring หัวไฟล์ session_tracker.py) — เดิมทิ้งไปหลัง insert ไม่
+    # เคยเก็บ ตอนนี้เก็บถาวรไว้ด้วยเพื่อทำสถิติ "สถานะการค้นข้อมูล" ในแดชบอร์ด (routers/stats.py:
+    # answered/off_topic_only/greeting_only) โดยไม่ต้องคำนวณใหม่จาก tags (ซึ่งบอกแค่ "หัวข้อเนื้อหา"
+    # ไม่ใช่ "การกระทำ" ที่เกิดขึ้นจริงในเทิร์นนั้น)
+    had_knowledge_search: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    had_off_topic: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

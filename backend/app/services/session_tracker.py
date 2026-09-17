@@ -73,13 +73,18 @@ def _insert_closed_session(
     ended_at: datetime,
     end_reason: SessionEndReason,
     status: SessionStatus,
+    knowledge_search_called: bool,
+    off_topic_flagged: bool,
 ) -> int:
     """sync — เรียกผ่าน loop.run_in_executor() เท่านั้น ห้ามเรียกตรงจาก event loop (blocking DB I/O)
     คืน id ของแถวที่ insert ไว้ให้ classify task เอาไป UPDATE ทีหลัง (ถ้าไม่ใช่ NOISE)
 
     status ตัดสินจาก _close_current_session ก่อนเรียกฟังก์ชันนี้แล้ว (NOISE ถ้าไม่เคยเรียก
     search_camt_knowledge_base เลยทั้ง session, ไม่งั้น UNCLASSIFIED เสมอ — classifier ไม่แตะ
-    status อีกทีหลัง insert ดู topic_classifier.py)"""
+    status อีกทีหลัง insert ดู topic_classifier.py)
+
+    knowledge_search_called/off_topic_flagged คือ flag เดียวกับที่ใช้ตัดสิน status ข้างบนนั่นเอง
+    (ไม่ใช่ค่าคำนวณใหม่) เก็บถาวรไว้ด้วยสำหรับสถิติ "สถานะการค้นข้อมูล" ในแดชบอร์ด (routers/stats.py)"""
     db = SessionLocal()
     try:
         session_row = ConversationSession(
@@ -92,6 +97,8 @@ def _insert_closed_session(
             message_count=len(turns),
             status=status,
             end_reason=end_reason,
+            had_knowledge_search=knowledge_search_called,
+            had_off_topic=off_topic_flagged,
         )
         db.add(session_row)
         db.add_all(
@@ -274,7 +281,8 @@ class SessionTracker:
         status = SessionStatus.NOISE if is_noise else SessionStatus.UNCLASSIFIED
 
         session_id = await loop.run_in_executor(
-            None, _insert_closed_session, self.ws_connection_id, turns, started_at, ended_at, end_reason, status
+            None, _insert_closed_session, self.ws_connection_id, turns, started_at, ended_at, end_reason, status,
+            knowledge_search_called, off_topic_flagged
         )
 
         if status == SessionStatus.NOISE:

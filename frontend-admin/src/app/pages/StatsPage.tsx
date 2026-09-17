@@ -6,6 +6,8 @@ import { ConversationStatCards } from "../components/stats/ConversationStatCards
 import { ConversationTrendChart } from "../components/stats/ConversationTrendChart";
 import { TopicDonutCard } from "../components/stats/TopicDonutCard";
 import { ConversationQualityDonut } from "../components/stats/ConversationQualityDonut";
+import { AllTopicsStatsTable } from "../components/stats/AllTopicsStatsTable";
+import { AnswerStatusBars } from "../components/stats/AnswerStatusBars";
 
 // ช่วงก่อนหน้าที่ "ยาวเท่ากัน" ต่อจากช่วงที่เลือกทันที — ใช้ทำ delta "เทียบช่วงก่อนหน้า" บนการ์ด KPI
 // ไม่ hardcode เป็น "เทียบสัปดาห์ก่อน" เพราะผู้ใช้เลือกช่วงวันที่เองได้ยาวสั้นไม่เท่ากัน คำนวณสด ๆ
@@ -109,9 +111,15 @@ export default function StatsPage() {
               <div className="col-span-12 xl:col-span-8 flex flex-col gap-4">
                 <ConversationStatCards stats={stats} prevStats={prevStats} />
                 <ConversationTrendChart dailyCounts={stats.daily_counts} />
+                <AllTopicsStatsTable topics={stats.top_topics} />
               </div>
               <div className="col-span-12 xl:col-span-4 flex flex-col gap-4">
                 <TopicDonutCard topics={stats.top_topics} />
+                <AnswerStatusBars
+                  answeredCount={stats.answered_count}
+                  offTopicOnlyCount={stats.off_topic_only_count}
+                  greetingOnlyCount={stats.greeting_only_count}
+                />
                 <ConversationQualityDonut
                   totalConversations={stats.total_conversations}
                   noiseCount={stats.noise_count}

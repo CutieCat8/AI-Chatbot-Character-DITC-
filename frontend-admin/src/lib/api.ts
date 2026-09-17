@@ -250,6 +250,9 @@ export interface ConversationStatsOut {
   noise_count: number;
   unclassified_count: number;
   other_count: number;
+  answered_count: number;
+  off_topic_only_count: number;
+  greeting_only_count: number;
   daily_counts: DailyConversationCountOut[];
   top_topics: TopicCountOut[];
 }

@@ -82,6 +82,43 @@ def conversation_stats(
         or 0
     )
 
+    # "สถานะการค้นข้อมูล" — 3 กลุ่มที่ไม่ overlap กันเลย ผลรวมต้อง = total_conversations เป๊ะ
+    # ลำดับความสำคัญ: เคยเรียก search จริง (ตอบได้) ชนะเสมอ แม้ในเทิร์นเดียวกันจะเคยโดน flag
+    # off_topic ด้วยก็ตาม (คุยผสมทั้งสองแบบ) — รองลงมาคือ off_topic อย่างเดียว (ไม่เคย search เลย)
+    # ที่เหลือคือทักทาย/small-talk ล้วน ๆ (ไม่เคยทำทั้งสองอย่าง)
+    answered_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(ConversationSession)
+            .where(non_noise_filter & ConversationSession.had_knowledge_search.is_(True))
+        )
+        or 0
+    )
+    off_topic_only_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(ConversationSession)
+            .where(
+                non_noise_filter
+                & ConversationSession.had_knowledge_search.is_(False)
+                & ConversationSession.had_off_topic.is_(True)
+            )
+        )
+        or 0
+    )
+    greeting_only_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(ConversationSession)
+            .where(
+                non_noise_filter
+                & ConversationSession.had_knowledge_search.is_(False)
+                & ConversationSession.had_off_topic.is_(False)
+            )
+        )
+        or 0
+    )
+
     # แนวโน้มรายวัน — group by วันที่ (UTC) ของ started_at แล้วเติมวันที่ไม่มีบทสนทนาเลยด้วย 0 กันกราฟ
     # เส้นขาดช่วง (frontend คาดหวังจุดข้อมูลครบทุกวันในช่วงที่เลือก)
     daily_rows = db.execute(
@@ -115,6 +152,9 @@ def conversation_stats(
         noise_count=noise_count,
         unclassified_count=unclassified_count,
         other_count=other_count,
+        answered_count=answered_count,
+        off_topic_only_count=off_topic_only_count,
+        greeting_only_count=greeting_only_count,
         daily_counts=daily_counts,
         top_topics=top_topics,
     )

@@ -33,6 +33,11 @@ class ConversationStatsOut(BaseModel):
     - other_count คือ session ที่มี tag "other" ปนอยู่ (นับซ้อนกับ topic อื่นได้ เพราะ 1 session
       ติดได้หลาย tag) แยกจาก unclassified_count เสมอ (classify สำเร็จแต่ enum ไม่ครอบคลุม
       ≠ classify ไม่สำเร็จเลย)
+    - answered_count/off_topic_only_count/greeting_only_count คือ "สถานะการค้นข้อมูล" 3 กลุ่มที่ไม่
+      overlap กันเลย ผลรวมทั้ง 3 ตัว = total_conversations เป๊ะเสมอ (ต่างจาก other_count/
+      unclassified_count ที่ overlap กับ topic ได้) ลำดับความสำคัญ: เคย search จริง (answered) ชนะ
+      เสมอแม้เทิร์นเดียวกันจะเคยโดน off_topic ด้วย, รองมาคือ off_topic อย่างเดียว, ที่เหลือคือทักทาย/
+      small-talk ล้วน ๆ — ดู routers/stats.py
     """
 
     start_date: date
@@ -41,5 +46,8 @@ class ConversationStatsOut(BaseModel):
     noise_count: int
     unclassified_count: int
     other_count: int
+    answered_count: int
+    off_topic_only_count: int
+    greeting_only_count: int
     daily_counts: list[DailyConversationCountOut]
     top_topics: list[TopicCountOut]
