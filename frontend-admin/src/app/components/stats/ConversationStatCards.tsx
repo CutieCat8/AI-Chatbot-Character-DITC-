@@ -84,8 +84,10 @@ function StatCard({
   const deltaClass = isGood === null ? "text-gray-400" : isGood ? "text-emerald-600" : "text-red-500";
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
-      <span className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center shrink-0">
+    <div
+      className="group bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3 transition-shadow duration-300 ease-out hover:shadow-lg hover:border-gray-200"
+    >
+      <span className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center shrink-0 transition-colors duration-300 ease-out group-hover:bg-gray-900 group-hover:text-white">
         {icon}
       </span>
 

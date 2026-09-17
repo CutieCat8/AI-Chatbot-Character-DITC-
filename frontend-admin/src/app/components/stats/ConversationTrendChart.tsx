@@ -28,7 +28,22 @@ export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartPr
   const highlighted = activeIndex ?? peakIndex;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
+    <div className="trend-chart-scope bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3 transition-all duration-300 ease-out hover:shadow-lg hover:border-gray-200">
+      {/* transition บน .recharts-rectangle เอง (แทน CSS class ปกติ) เพราะ Cell/Bar ของ recharts
+          re-render fill ผ่าน inline attribute ทุกครั้งที่ highlighted เปลี่ยน — ต้องมี transition
+          ที่ตัว <path> จริงถึงจะเห็นสีไล่เรียบ ๆ ตอนเมาส์เลื่อนแท่งไปมา ไม่ใช่กระพริบเปลี่ยนทันที */}
+      <style>{`
+        .trend-chart-scope .recharts-rectangle {
+          transition: fill 200ms ease, filter 200ms ease;
+        }
+        @keyframes trendChartPillIn {
+          from { opacity: 0; transform: translateY(-2px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .trend-chart-scope .trend-chart-pill {
+          animation: trendChartPillIn 200ms ease-out;
+        }
+      `}</style>
       <div className="flex items-center justify-between">
         <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
           <TrendingUp size={13} className="text-gray-400" />
@@ -36,7 +51,8 @@ export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartPr
         </span>
         {highlighted >= 0 && data[highlighted] && (
           <span
-            className="rounded-full px-2.5 py-1 bg-gray-100 text-gray-700"
+            key={highlighted}
+            className="trend-chart-pill rounded-full px-2.5 py-1 bg-gray-100 text-gray-700"
             style={{ fontSize: "0.72rem", fontWeight: 600 }}
           >
             {data[highlighted].label} · {data[highlighted].count.toLocaleString("th-TH")} บทสนทนา
@@ -82,7 +98,14 @@ export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartPr
             />
             <Bar dataKey="count" radius={[4, 4, 4, 4]} maxBarSize={28}>
               {data.map((_, i) => (
-                <Cell key={i} fill={i === highlighted ? DARK : LIGHT} />
+                <Cell
+                  key={i}
+                  fill={i === highlighted ? DARK : LIGHT}
+                  style={{
+                    filter: i === highlighted ? "drop-shadow(0 4px 6px rgba(17,24,39,0.35))" : "none",
+                    cursor: "pointer",
+                  }}
+                />
               ))}
             </Bar>
           </BarChart>
