@@ -26,7 +26,7 @@ export function ConversationStatCards({ stats, prevStats }: ConversationStatCard
       />
       <StatCard
         icon={<HelpCircle size={15} />}
-        label="ยังไม่จัดหมวด (Unclassified)"
+        label="ยังไม่จัดหมวด"
         value={stats.unclassified_count}
         prevValue={prevStats?.unclassified_count}
         invertDelta
@@ -34,14 +34,14 @@ export function ConversationStatCards({ stats, prevStats }: ConversationStatCard
       />
       <StatCard
         icon={<Tags size={15} />}
-        label="อื่น ๆ (Other)"
+        label="อื่น ๆ"
         value={stats.other_count}
         prevValue={prevStats?.other_count}
         hint="จัดหมวดสำเร็จ แต่ไม่ตรงกับหัวข้อที่มีอยู่ — enum อาจต้องเพิ่ม"
       />
       <StatCard
         icon={<VolumeX size={15} />}
-        label="เงียบ/ขยะ (Noise)"
+        label="เงียบ/ขยะ"
         value={stats.noise_count}
         prevValue={prevStats?.noise_count}
         invertDelta

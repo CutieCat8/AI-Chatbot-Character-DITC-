@@ -74,5 +74,5 @@ export function DateRangeControl({ start, end, onChange }: DateRangeControlProps
 }
 
 export function defaultDateRange(): [string, string] {
-  return presetRange(30);
+  return presetRange(7);
 }
