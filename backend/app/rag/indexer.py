@@ -98,6 +98,10 @@ def index_one_document(db: Session, document: Document, embedder: Embedder | Non
     """
     embedder = embedder or get_embedder()
     document.chunks.clear()  # เนื้อหาอาจเปลี่ยน chunk เดิมใช้ต่อไม่ได้
+    # relationship.clear() เพียง mark แถวเดิมไว้รอลบใน unit of work ถ้าเพิ่ม chunk
+    # index เดิมก่อน flush SQLAlchemy อาจ INSERT ก่อน DELETE แล้วชน uq_chunk_doc_index
+    # บังคับให้ DELETE เสร็จก่อนสร้าง replacement rows
+    db.flush()
 
     chunks = chunk_text(document.content)
     if not chunks:

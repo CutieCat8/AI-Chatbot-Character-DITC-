@@ -197,9 +197,13 @@ def update_document(document_id: int, payload: DocumentUpdateIn, db: Session = D
         content = payload.content.strip()
         if not content:
             raise HTTPException(status_code=422, detail="content ห้ามว่าง")
-        doc.content = content
-        doc.content_hash = compute_content_hash(content)
-        content_changed = True
+        # หน้าแก้ไขส่ง content มาพร้อมสถานะเสมอ แม้ผู้ใช้จะกดเปลี่ยนเฉพาะ Active
+        # จึงต้องเทียบค่าจริงก่อน ไม่เช่นนั้นทุกการเปลี่ยนสถานะจะ re-embed โดยไม่จำเป็น
+        # และเสี่ยงชน unique key ของ chunk เดิมระหว่าง replace
+        if content != doc.content:
+            doc.content = content
+            doc.content_hash = compute_content_hash(content)
+            content_changed = True
 
     # เนื้อหาเปลี่ยน → chunk เดิมใช้ไม่ได้แล้ว ต้อง re-index ใหม่ทันที (ไม่รอ Sync Now รอบหน้า)
     chunk_count = index_one_document(db, doc, get_embedder()) if content_changed else _chunk_count(db, document_id)
