@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from "recharts";
-import type { PieSectorDataItem } from "recharts/types/polar/Pie";
 import { PieChart as PieIcon } from "lucide-react";
 import type { TopicCountOut } from "../../../lib/api";
+import { DitherDonutRing } from "./DitherDonutRing";
 
 interface TopicDonutCardProps {
   topics: TopicCountOut[];
@@ -14,24 +13,6 @@ interface TopicDonutCardProps {
 const GRAY_RAMP = ["#111827", "#4B5563", "#9CA3AF", "#D1D5DB", "#E5E7EB"];
 const OTHER_COLOR = "#14B8A6"; // teal-500
 const MAX_SLICES = 4;
-
-// สไลซ์ที่ชี้อยู่ "โต" ขึ้นมา 6px (ธีมเดียวกับ preview-card:hover ของเว็บ The Commons ที่ยก
-// translateY(-6px) ตอนชี้เมาส์ — แค่คนละมิติเพราะเป็นวงกลม ใช้ขยายรัศมีแทนการยกขึ้นแทน)
-function renderActiveShape(props: PieSectorDataItem) {
-  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
-  return (
-    <Sector
-      cx={cx}
-      cy={cy}
-      innerRadius={innerRadius}
-      outerRadius={(outerRadius ?? 0) + 6}
-      startAngle={startAngle}
-      endAngle={endAngle}
-      fill={fill}
-      style={{ filter: "drop-shadow(0 6px 10px rgba(17,24,39,0.25))", transition: "filter 200ms ease" }}
-    />
-  );
-}
 
 export function TopicDonutCard({ topics }: TopicDonutCardProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -77,30 +58,13 @@ export function TopicDonutCard({ topics }: TopicDonutCardProps) {
         </p>
       ) : (
         <>
-          <div className="relative" style={{ width: "100%", height: 170 }}>
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={slices}
-                  dataKey="count"
-                  nameKey="label"
-                  innerRadius={52}
-                  outerRadius={78}
-                  paddingAngle={3}
-                  stroke="none"
-                  startAngle={90}
-                  endAngle={-270}
-                  activeIndex={activeIndex ?? undefined}
-                  activeShape={renderActiveShape}
-                  onMouseEnter={(_, i) => setActiveIndex(i)}
-                  onMouseLeave={() => setActiveIndex(null)}
-                >
-                  {slices.map((s, i) => (
-                    <Cell key={s.topic} fill={colorFor(s.topic, i)} style={{ cursor: "pointer" }} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="relative flex items-center justify-center" style={{ width: "100%", height: 170 }}>
+            <DitherDonutRing
+              slices={slices.map((s, i) => ({ key: s.topic, value: s.count, color: colorFor(s.topic, i) }))}
+              activeIndex={activeIndex}
+              onHoverIndex={setActiveIndex}
+              size={170}
+            />
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               {/* total ตรงนี้คือผลรวม "ครั้งที่ติดแท็ก" ไม่ใช่จำนวนบทสนทนา — หนึ่งบทสนทนาติดได้หลาย
                   tag (ดู Topic enum ใน backend/app/models/enums.py) เลยอาจมากกว่า total_conversations
