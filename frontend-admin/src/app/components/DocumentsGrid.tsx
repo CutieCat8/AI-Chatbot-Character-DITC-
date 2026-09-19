@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Search, Plus, Pencil, Trash2, Eye, Loader2, FileText } from "lucide-react";
 import { listDocuments, deleteDocument, type DocumentOut, type SourceSite } from "../../lib/api";
+import { getDocumentStatus, DOCUMENT_STATUS_STYLE } from "../../lib/documentStatus";
 import { DocumentModal, type DocumentModalMode } from "./DocumentModal";
 
 const SRC_STYLE: Record<SourceSite, string> = {
@@ -205,10 +206,15 @@ export function DocumentsGrid({
                   <span className={`px-2 py-0.5 rounded font-semibold ${SRC_STYLE[d.source_site]}`} style={{ fontSize: "0.66rem" }}>
                     {SRC_LABEL[d.source_site]}
                   </span>
-                  <span className={`flex items-center gap-1 ${d.is_active ? "text-gray-500" : "text-amber-600"}`} style={{ fontSize: "0.7rem" }}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${d.is_active ? "bg-emerald-500" : "bg-amber-400"}`} />
-                    {d.is_active ? "Active" : "Inactive"}
-                  </span>
+                  {(() => {
+                    const s = DOCUMENT_STATUS_STYLE[getDocumentStatus(d)];
+                    return (
+                      <span className={`flex items-center gap-1 ${s.textClass}`} style={{ fontSize: "0.7rem" }}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${s.dotClass}`} />
+                        {s.label}
+                      </span>
+                    );
+                  })()}
                   {/* โชว์ id ให้เห็นตรง ๆ บนการ์ด (ผู้ว่าจ้างขอ 2026-09-19) — ไว้ไล่หาเอกสารจากปุ่ม
                       ลูกศรใน StatusPanel's "Needs Attention" ได้ว่ากล่องไหนคือ id อะไรจริง ๆ */}
                   <span className="text-gray-300" style={{ fontSize: "0.66rem" }}>

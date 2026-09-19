@@ -14,6 +14,8 @@ import {
   type DocumentDetailOut,
 } from "../../lib/api";
 import { tidyScrapedText } from "../../lib/textClean";
+import { getDocumentStatus, DOCUMENT_STATUS_STYLE, MIN_CONTENT_LENGTH } from "../../lib/documentStatus";
+import { Switch8Bit } from "./ui/8bit-switch";
 
 export type DocumentModalMode = "view" | "edit" | "create";
 
@@ -56,7 +58,6 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
   const [error, setError] = useState<string | null>(null);
 
   const isView = mode === "view";
-  const isEdit = mode === "edit";
 
   useEffect(() => {
     if (!open) return;
@@ -91,6 +92,16 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
     return Math.max(0, before - after);
   }, [content, cleanedContent]);
 
+  // เงื่อนไขเดียวกับที่ backend ใช้ตัดสินว่าเนื้อหาจะเหลือ chunk อย่างน้อย 1 ชิ้นไหม (ดู
+  // chunking.py MIN_CHUNK) — เช็คฝั่งนี้ก่อน ป้องกันไม่ให้ตั้ง Active ทั้งที่รู้อยู่แล้วว่าเอาไปตอบ
+  // ไม่ได้แน่ ๆ (เคสจริงที่ผู้ว่าจ้างเจอ 2026-09-20: เพิ่มเอกสาร manual เนื้อหาสั้นเกินไป ได้ 0 chunk
+  // แต่ระบบยังโชว์ Active อยู่เหมือนใช้งานได้ปกติ)
+  const contentMeetsMinimum = content.trim().length >= MIN_CONTENT_LENGTH;
+
+  useEffect(() => {
+    if (!contentMeetsMinimum && isActive) setIsActive(false);
+  }, [contentMeetsMinimum, isActive]);
+
   const handleTidy = () => setContent(cleanedContent);
 
   const handleSave = async () => {
@@ -102,7 +113,7 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
     setError(null);
     try {
       if (mode === "create") {
-        await createDocument({ title: title || null, content });
+        await createDocument({ title: title || null, content, is_active: isActive });
       } else if (mode === "edit" && documentId != null) {
         await updateDocument(documentId, { title: title || null, content, is_active: isActive });
       }
@@ -134,10 +145,15 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
                 <MetaField label="Source">{SRC_LABEL[doc.source_site] ?? doc.source_site}</MetaField>
                 <MetaField label="Status">
-                  <span className={`flex items-center gap-1.5 ${doc.is_active ? "text-gray-500" : "text-amber-600"}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${doc.is_active ? "bg-emerald-500" : "bg-amber-400"}`} />
-                    {doc.is_active ? "Active" : "Inactive"}
-                  </span>
+                  {(() => {
+                    const s = DOCUMENT_STATUS_STYLE[getDocumentStatus(doc)];
+                    return (
+                      <span className={`flex items-center gap-1.5 ${s.textClass}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${s.dotClass}`} />
+                        {s.label}
+                      </span>
+                    );
+                  })()}
                 </MetaField>
                 <MetaField label="อัปเดต">{formatDate(doc.updated_at)}</MetaField>
                 <MetaField label="Chunks">{doc.chunk_count.toLocaleString()}</MetaField>
@@ -157,6 +173,14 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
                   </div>
                 )}
               </div>
+            )}
+
+            {doc && doc.chunk_count === 0 && (
+              <p className="text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2" style={{ fontSize: "0.78rem" }}>
+                เนื้อหาสั้นเกินไปจนตัดเป็น chunk ไม่ได้เลยสักชิ้น (ต้องยาวอย่างน้อย ~40 ตัวอักษรขึ้นไป)
+                — ระบบเลยเอาไปตอบคำถามไม่ได้ ต่อให้สถานะเป็น Active ก็ตาม แก้เนื้อหาให้ยาวขึ้นแล้วบันทึก
+                ใหม่เพื่อ index อีกครั้ง
+              </p>
             )}
 
             <div className="flex flex-col gap-1.5">
@@ -222,11 +246,40 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
               )}
             </div>
 
-            {isEdit && (
-              <label className="flex items-center gap-2 cursor-pointer w-fit">
-                <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-                <span className="text-gray-600" style={{ fontSize: "0.82rem" }}>Active (แสดงในระบบค้นหา)</span>
-              </label>
+            {!isView && (
+              <div className="flex flex-col gap-1.5 w-fit">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={isActive ? "text-emerald-600" : "text-gray-400"}
+                    style={{ fontSize: "0.78rem", fontWeight: 500 }}
+                  >
+                    Active
+                  </span>
+                  <label className={contentMeetsMinimum ? "cursor-pointer" : "cursor-not-allowed"}>
+                    <Switch8Bit
+                      aria-label="เปิดหรือปิดการใช้งานเอกสารในระบบค้นหา"
+                      checked={isActive}
+                      disabled={!contentMeetsMinimum}
+                      onCheckedChange={(checked) => setIsActive(checked)}
+                    />
+                  </label>
+                  <span
+                    className={!isActive ? "text-gray-500" : "text-gray-300"}
+                    style={{ fontSize: "0.78rem", fontWeight: 500 }}
+                  >
+                    Inactive
+                  </span>
+                </div>
+                <p className="text-gray-400" style={{ fontSize: "0.72rem" }}>
+                  (ระบบจะไม่สามารถใช้ข้อมูลนี้ในการตอบ)
+                </p>
+                {!contentMeetsMinimum && (
+                  <p className="text-amber-600" style={{ fontSize: "0.7rem" }}>
+                    เนื้อหาต้องยาวอย่างน้อย {MIN_CONTENT_LENGTH} ตัวอักษรขึ้นไปก่อน ถึงจะเปิด Active
+                    ได้ — สั้นกว่านี้ระบบจะตัดเป็น chunk ไม่ได้เลย เอาไปตอบคำถามไม่ได้อยู่ดี
+                  </p>
+                )}
+              </div>
             )}
 
             {error && <p className="text-red-500" style={{ fontSize: "0.8rem" }}>{error}</p>}
