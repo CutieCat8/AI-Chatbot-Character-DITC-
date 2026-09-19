@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, Database } from "lucide-react";
-import { getDocumentStats, getSyncStatus, triggerSync } from "../../lib/api";
+import { RefreshCw, AlertTriangle, Database, ArrowUpRight, CheckCircle2 } from "lucide-react";
+import { getDocumentStats, getSyncStatus, listDocuments, triggerSync, type DocumentOut } from "../../lib/api";
+
+interface StatusPanelProps {
+  // เปิด DocumentModal (view) ของเอกสารตัวนี้ — ยกสถานะ modal ขึ้นไปไว้ที่ DocumentsGrid.tsx ผ่าน
+  // KnowledgeBasePage.tsx เพราะ DocumentModal ผูกอยู่กับ DocumentsGrid ไม่ใช่ StatusPanel เอง
+  onJumpToDocument?: (id: number) => void;
+}
 
 // เดิมโชว์แค่เวลา (เช่น "14:32 น.") ไม่มีวันที่ ใช้บอกไม่ได้ว่า sync ล่าสุดคือ "วันนี้" หรือค้างมา
 // หลายวันแล้ว — เปลี่ยนเป็นวันที่ DD/MM/YYYY ตามที่ผู้ว่าจ้างขอ (เขียนเองแทน toLocaleDateString
@@ -13,7 +19,7 @@ function formatDate(iso: string | null): string {
   return `${day}/${month}/${d.getFullYear()}`;
 }
 
-export function StatusPanel() {
+export function StatusPanel({ onJumpToDocument }: StatusPanelProps) {
   const [ditcDocs, setDitcDocs] = useState(0);
   const [camtDocs, setCamtDocs] = useState(0);
   const [total, setTotal] = useState(0);
@@ -22,6 +28,10 @@ export function StatusPanel() {
   const [todayCount, setTodayCount] = useState(0);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [needsAttention, setNeedsAttention] = useState(0);
+  // รายชื่อจริงของเอกสารที่ยังไม่ index (ไม่ใช่แค่ตัวเลขนับเฉย ๆ แบบเดิม) — ผู้ว่าจ้างขอให้กล่องนี้
+  // ทำตัวเหมือนกล่อง log/error แทน ต้องรู้ทันทีว่า "ตัวไหน" ไม่ใช่แค่ "กี่ตัว" backend มี filter
+  // ?unindexed=true เตรียมไว้อยู่แล้ว (ดู routers/documents.py) แค่ยังไม่มีใครเรียกใช้จาก UI มาก่อน
+  const [unindexedDocs, setUnindexedDocs] = useState<DocumentOut[]>([]);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -35,6 +45,12 @@ export function StatusPanel() {
       .catch(() => {});
   }, []);
 
+  const loadUnindexedDocs = useCallback(() => {
+    listDocuments({ unindexed: true, page_size: 20 })
+      .then((res) => setUnindexedDocs(res.items))
+      .catch(() => {});
+  }, []);
+
   const loadSyncStatus = useCallback(() => {
     getSyncStatus()
       .then((status) => {
@@ -45,7 +61,8 @@ export function StatusPanel() {
         return status.is_running;
       })
       .catch(() => false);
-  }, []);
+    loadUnindexedDocs();
+  }, [loadUnindexedDocs]);
 
   useEffect(() => {
     loadStats();
@@ -66,6 +83,7 @@ export function StatusPanel() {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
           loadStats();
+          loadUnindexedDocs();
         }
       }, 3000);
     }
@@ -75,7 +93,7 @@ export function StatusPanel() {
         pollRef.current = null;
       }
     };
-  }, [isRunning, loadStats]);
+  }, [isRunning, loadStats, loadUnindexedDocs]);
 
   const handleSyncNow = () => {
     if (isRunning) return;
@@ -121,19 +139,59 @@ export function StatusPanel() {
         </button>
       </div>
 
-      {/* Attention */}
-      <div className="bg-white rounded-xl border border-amber-100 shadow-sm p-4 flex flex-col gap-2.5">
+      {/* Attention — ทำตัวเหมือนกล่อง log/error แทนที่จะโชว์แค่ตัวเลขนับเฉย ๆ (ผู้ว่าจ้างขอ
+          2026-09-19): บอก "ตัวไหน" ไม่ใช่แค่ "กี่ตัว" แต่ละแถวกดปุ่มลูกศรเพื่อเปิด DocumentModal ของ
+          เอกสารตัวนั้นตรง ๆ ได้เลย ไม่ต้องไปงมหาเองในหน้า Resources */}
+      <div className={`bg-white rounded-xl border shadow-sm p-4 flex flex-col gap-2.5 ${needsAttention > 0 ? "border-amber-100" : "border-gray-100"}`}>
         <span className="text-gray-700 flex items-center gap-1.5" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
-          <AlertTriangle size={13} className="text-amber-400" />
+          <AlertTriangle size={13} className={needsAttention > 0 ? "text-amber-400" : "text-gray-300"} />
           Needs Attention
+          {needsAttention > 0 && (
+            <span className="text-amber-600" style={{ fontWeight: 700 }}>
+              ({needsAttention})
+            </span>
+          )}
         </span>
 
-        <div className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2.5">
-          <div>
-            <p className="text-amber-700" style={{ fontSize: "1.1rem", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1 }}>{needsAttention}</p>
-            <p className="text-amber-500 mt-0.5" style={{ fontSize: "0.68rem" }}>ยังไม่ได้ index</p>
+        {needsAttention === 0 ? (
+          <div className="flex items-center gap-1.5 text-gray-400 px-1 py-1" style={{ fontSize: "0.72rem" }}>
+            <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+            ไม่มีเอกสารที่ต้องดูแล
           </div>
-        </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-amber-600" style={{ fontSize: "0.68rem", fontWeight: 600 }}>
+              ยังไม่ได้ index
+            </p>
+            {unindexedDocs.map((doc) => (
+              <div
+                key={doc.id}
+                className="flex items-center justify-between gap-2 bg-amber-50 rounded-lg px-2.5 py-1.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-amber-700 shrink-0" style={{ fontSize: "0.72rem", fontWeight: 700 }}>
+                    #{doc.id}
+                  </span>{" "}
+                  <span className="text-amber-600 truncate" style={{ fontSize: "0.7rem" }} title={doc.title ?? undefined}>
+                    {doc.title || "(ไม่มีชื่อเรื่อง)"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => onJumpToDocument?.(doc.id)}
+                  className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-amber-500 hover:bg-amber-100 hover:text-amber-700 transition-colors"
+                  title="แก้ไขเอกสารนี้"
+                >
+                  <ArrowUpRight size={13} />
+                </button>
+              </div>
+            ))}
+            {needsAttention > unindexedDocs.length && (
+              <p className="text-amber-500 text-center" style={{ fontSize: "0.66rem" }}>
+                และอีก {needsAttention - unindexedDocs.length} รายการ
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Storage */}

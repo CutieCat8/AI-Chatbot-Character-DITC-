@@ -7,6 +7,9 @@ import type { SourceSite } from "../../lib/api";
 export default function KnowledgeBasePage() {
   const [search, setSearch] = useState("");
   const [source, setSource] = useState<FilterSource>("all");
+  // "ไปที่เอกสารนี้" จากปุ่มลูกศรใน StatusPanel's "Needs Attention" — ยกสถานะขึ้นมาไว้ที่นี่เพราะ
+  // StatusPanel กับ DocumentsGrid (ที่ถือ DocumentModal จริง) เป็นพี่น้องกัน คนละ component
+  const [jumpToId, setJumpToId] = useState<number | null>(null);
 
   const handleSelectCategory = (s: SourceSite | null) => {
     setSource(s ?? "all");
@@ -26,7 +29,7 @@ export default function KnowledgeBasePage() {
           {/* Left: navigation + status */}
           <div className="w-60 shrink-0 flex flex-col gap-6">
             <CategoryNav selected={source === "all" ? null : source} onSelect={handleSelectCategory} />
-            <StatusPanel />
+            <StatusPanel onJumpToDocument={setJumpToId} />
           </div>
 
           {/* Right: resources */}
@@ -34,7 +37,14 @@ export default function KnowledgeBasePage() {
             <p className="text-gray-400 mb-3" style={{ fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
               Resources
             </p>
-            <DocumentsGrid search={search} onSearchChange={setSearch} source={source} onSourceChange={setSource} />
+            <DocumentsGrid
+              search={search}
+              onSearchChange={setSearch}
+              source={source}
+              onSourceChange={setSource}
+              jumpToId={jumpToId}
+              onJumpHandled={() => setJumpToId(null)}
+            />
           </div>
         </div>
       </div>

@@ -41,9 +41,21 @@ interface DocumentsGridProps {
   onSearchChange: (q: string) => void;
   source: FilterSource;
   onSourceChange: (s: FilterSource) => void;
+  // เปิด DocumentModal (view) ของ id นี้ทันทีจากภายนอก (เช่น กดปุ่มลูกศรใน StatusPanel's
+  // "Needs Attention") ไม่ผูกกับตัวกรอง/หน้าปัจจุบันของ grid เลย เพราะ DocumentModal โหลดเอกสารเอง
+  // ผ่าน getDocument(id) ตรง ๆ อยู่แล้ว (ดู DocumentModal.tsx) — jumpToId เปลี่ยนค่าทีไรก็เปิดใหม่
+  jumpToId?: number | null;
+  onJumpHandled?: () => void;
 }
 
-export function DocumentsGrid({ search, onSearchChange, source: src, onSourceChange: setSrc }: DocumentsGridProps) {
+export function DocumentsGrid({
+  search,
+  onSearchChange,
+  source: src,
+  onSourceChange: setSrc,
+  jumpToId,
+  onJumpHandled,
+}: DocumentsGridProps) {
   const [status, setStatus] = useState<FilterStatus>("all");
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -96,6 +108,15 @@ export function DocumentsGrid({ search, onSearchChange, source: src, onSourceCha
     setModalMode(mode);
     setModalDocId(id);
   };
+
+  useEffect(() => {
+    if (jumpToId == null) return;
+    // เปิดเป็น "edit" ไม่ใช่ "view" — คนกดลูกศรจาก Needs Attention ตั้งใจจะมาแก้เนื้อหาให้ยาวพอผ่าน
+    // MIN_CHUNK อยู่แล้ว (ดู chunking.py) ไม่ใช่แค่มาดูเฉย ๆ
+    setModalMode("edit");
+    setModalDocId(jumpToId);
+    onJumpHandled?.();
+  }, [jumpToId, onJumpHandled]);
 
   const handleDelete = async (doc: DocumentOut) => {
     const ok = window.confirm(`ลบเอกสาร "${doc.title ?? doc.source_url}" ใช่ไหม? กู้คืนไม่ได้`);
@@ -187,6 +208,11 @@ export function DocumentsGrid({ search, onSearchChange, source: src, onSourceCha
                   <span className={`flex items-center gap-1 ${d.is_active ? "text-gray-500" : "text-amber-600"}`} style={{ fontSize: "0.7rem" }}>
                     <span className={`w-1.5 h-1.5 rounded-full ${d.is_active ? "bg-emerald-500" : "bg-amber-400"}`} />
                     {d.is_active ? "Active" : "Inactive"}
+                  </span>
+                  {/* โชว์ id ให้เห็นตรง ๆ บนการ์ด (ผู้ว่าจ้างขอ 2026-09-19) — ไว้ไล่หาเอกสารจากปุ่ม
+                      ลูกศรใน StatusPanel's "Needs Attention" ได้ว่ากล่องไหนคือ id อะไรจริง ๆ */}
+                  <span className="text-gray-300" style={{ fontSize: "0.66rem" }}>
+                    #{d.id}
                   </span>
                 </div>
 
