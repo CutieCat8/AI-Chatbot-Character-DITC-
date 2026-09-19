@@ -2,9 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, AlertTriangle, Database } from "lucide-react";
 import { getDocumentStats, getSyncStatus, triggerSync } from "../../lib/api";
 
-function formatTime(iso: string | null): string {
+// เดิมโชว์แค่เวลา (เช่น "14:32 น.") ไม่มีวันที่ ใช้บอกไม่ได้ว่า sync ล่าสุดคือ "วันนี้" หรือค้างมา
+// หลายวันแล้ว — เปลี่ยนเป็นวันที่ DD/MM/YYYY ตามที่ผู้ว่าจ้างขอ (เขียนเองแทน toLocaleDateString
+// เพราะ locale "th-TH" คืนปี พ.ศ. เช่น 2569 ซึ่งไม่ตรงกับตัวอย่างที่ขอ "19/09/2026" ที่เป็น ค.ศ.)
+function formatDate(iso: string | null): string {
   if (!iso) return "ยังไม่เคย sync";
-  return new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) + " น.";
+  const d = new Date(iso);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${d.getFullYear()}`;
 }
 
 export function StatusPanel() {
@@ -101,7 +107,7 @@ export function StatusPanel() {
           </div>
           <div className="flex justify-between items-center">
             <span className="text-gray-400" style={{ fontSize: "0.73rem" }}>ล่าสุด</span>
-            <span className="text-gray-500" style={{ fontSize: "0.7rem" }}>{formatTime(lastSyncedAt)}</span>
+            <span className="text-gray-500" style={{ fontSize: "0.7rem" }}>{formatDate(lastSyncedAt)}</span>
           </div>
         </div>
 
