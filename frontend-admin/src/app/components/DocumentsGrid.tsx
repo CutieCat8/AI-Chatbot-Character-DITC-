@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
-import { Search, Plus, Pencil, Trash2, Eye, Loader2, FileText } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Eye, Loader2, FileText, CircleAlert } from "lucide-react";
 import { listDocuments, deleteDocument, type DocumentOut, type SourceSite } from "../../lib/api";
 import { getDocumentStatus, DOCUMENT_STATUS_STYLE } from "../../lib/documentStatus";
 import { DocumentModal, type DocumentModalMode } from "./DocumentModal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
 const SRC_STYLE: Record<SourceSite, string> = {
   ditc: "bg-gray-800 text-gray-50",
@@ -69,6 +79,9 @@ export function DocumentsGrid({
   const [modalMode, setModalMode] = useState<DocumentModalMode | null>(null);
   const [modalDocId, setModalDocId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  // เอกสารที่กำลังรอยืนยันลบ (แทน window.confirm() เดิม — ผู้ว่าจ้างขอ 2026-09-20 ว่า alert เบราว์
+  // เซอร์ดีฟอลต์ไม่สวย ให้เปลี่ยนเป็น AlertDialog ที่มีอยู่ในโปรเจกต์นี้แล้ว (shadcn-style))
+  const [pendingDelete, setPendingDelete] = useState<DocumentOut | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,11 +132,11 @@ export function DocumentsGrid({
     onJumpHandled?.();
   }, [jumpToId, onJumpHandled]);
 
-  const handleDelete = async (doc: DocumentOut) => {
-    const ok = window.confirm(`ลบเอกสาร "${doc.title ?? doc.source_url}" ใช่ไหม? กู้คืนไม่ได้`);
-    if (!ok) return;
-
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
+    const doc = pendingDelete;
     setDeletingId(doc.id);
+    setPendingDelete(null);
     try {
       await deleteDocument(doc.id);
       setRefreshKey((k) => k + 1);
@@ -236,7 +249,7 @@ export function DocumentsGrid({
                     <Pencil size={13} />
                   </button>
                   <button
-                    onClick={() => handleDelete(d)}
+                    onClick={() => setPendingDelete(d)}
                     disabled={deletingId === d.id}
                     className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
                   >
@@ -298,6 +311,45 @@ export function DocumentsGrid({
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
       )}
+
+      <AlertDialog open={pendingDelete != null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent className="origin-center gap-0 overflow-hidden p-0 data-[state=closed]:slide-out-to-bottom-3 data-[state=closed]:zoom-out-95 data-[state=closed]:duration-150 data-[state=open]:slide-in-from-bottom-3 data-[state=open]:duration-200 sm:max-w-[420px]">
+          <AlertDialogHeader className="relative flex-row items-start gap-4 px-5 pb-10 pt-5 text-left">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-700">
+              <CircleAlert size={18} strokeWidth={1.75} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <AlertDialogTitle className="text-lg">ยืนยันการลบเอกสาร</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="mt-2 space-y-2.5 text-left text-sm leading-5 text-gray-500">
+                  <p className="text-[13px]">ต้องการลบเอกสารนี้ใช่ไหม?</p>
+                  <div className="flex items-center gap-2.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-gray-800">
+                    <FileText size={15} className="shrink-0 text-gray-400" />
+                    <span
+                      className="min-w-0 truncate text-sm font-medium"
+                      title={pendingDelete?.title ?? pendingDelete?.source_url}
+                    >
+                      {pendingDelete?.title ?? pendingDelete?.source_url ?? "ไม่มีชื่อเอกสาร"}
+                    </span>
+                  </div>
+                </div>
+              </AlertDialogDescription>
+            </div>
+            <p className="absolute bottom-3 right-5 text-right text-xs text-gray-400">
+              เมื่อลบแล้วจะไม่สามารถกู้คืนได้
+            </p>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="border-t border-gray-100 bg-gray-50/70 px-5 py-3.5">
+            <AlertDialogCancel className="bg-white transition-transform active:scale-95">ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-gray-950 text-white transition-transform hover:bg-gray-800 focus-visible:ring-gray-400 active:scale-95"
+            >
+              ลบเอกสาร
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
