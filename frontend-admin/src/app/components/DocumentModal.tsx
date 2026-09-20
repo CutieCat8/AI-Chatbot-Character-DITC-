@@ -271,7 +271,7 @@ export function DocumentModal({ mode, documentId, open, onOpenChange, onSaved }:
                   </span>
                 </div>
                 <p className="text-gray-400" style={{ fontSize: "0.72rem" }}>
-                  (ระบบจะไม่สามารถใช้ข้อมูลนี้ในการตอบ)
+                  เมื่อปิดใช้งาน ระบบจะไม่นำข้อมูลนี้ไปใช้ตอบคำถาม
                 </p>
                 {!contentMeetsMinimum && (
                   <p className="text-amber-600" style={{ fontSize: "0.7rem" }}>
