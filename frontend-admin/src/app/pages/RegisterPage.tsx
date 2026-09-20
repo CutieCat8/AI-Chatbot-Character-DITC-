@@ -1,13 +1,14 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { Cat, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { register, setToken } from "../../lib/api";
 import { AuthShowcase } from "../components/AuthShowcase";
 import Aurora from "../components/Aurora/Aurora";
+import logo from "../../assets/logo.png";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -46,8 +47,8 @@ export default function RegisterPage() {
         <div className="flex flex-col justify-between p-10 md:p-14 bg-[#161719]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-md bg-white flex items-center justify-center">
-                <Cat size={14} className="text-gray-900" />
+              <div className="w-7 h-7 rounded-md bg-white flex items-center justify-center overflow-hidden">
+                <img src={logo} alt="DITC CAT" className="w-full h-full object-contain" />
               </div>
               <span className="text-sm font-semibold text-white">DITC CAT</span>
             </div>

@@ -1,5 +1,5 @@
-import { Cat } from "lucide-react";
 import Orb from "./Orb/Orb";
+import logo from "../../assets/logo.png";
 
 const TRUST_BADGES = [
   { label: "RAG ready", className: "-top-3 left-1/2 -translate-x-1/2" },
@@ -19,8 +19,8 @@ export function AuthShowcase() {
           <div className="absolute inset-6 rounded-full border border-dashed border-white/20 animate-[ditc-spin-ccw_36s_linear_infinite]" />
           <div className="absolute inset-12 rounded-full border border-dashed border-white/25 animate-[ditc-spin-cw_24s_linear_infinite]" />
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg">
-              <Cat size={22} className="text-gray-900" />
+            <div className="w-12 h-12 flex items-center justify-center">
+              <img src={logo} alt="DITC CAT" className="w-full h-full object-contain" />
             </div>
           </div>
           {TRUST_BADGES.map((badge) => (

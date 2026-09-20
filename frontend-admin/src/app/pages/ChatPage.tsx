@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Send, Globe, ExternalLink, Cat, User, Loader2 } from "lucide-react";
+import { Sparkles, Send, Globe, ExternalLink, User, Loader2 } from "lucide-react";
 import { askChat, MAX_HISTORY_TURNS, type ChatSourceOut, type ChatTurn } from "../../lib/api";
+import logo from "../../assets/logo.png";
 
 interface Message {
   id: string;
@@ -130,8 +131,8 @@ export default function ChatPage() {
       <div className="w-[440px] shrink-0 flex flex-col border-r border-gray-100 bg-white">
         {/* header */}
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center shrink-0">
-            <Cat size={16} className="text-white" />
+          <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center shrink-0 overflow-hidden">
+            <img src={logo} alt="DITC CAT" className="w-full h-full object-contain" />
           </div>
           <div>
             <p className="text-gray-900" style={{ fontSize: "0.85rem", fontWeight: 600 }}>DITC CAT</p>
