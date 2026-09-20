@@ -52,8 +52,16 @@ export function AnswerStatusBars({ answeredCount, offTopicOnlyCount, greetingOnl
                   >
                     {row.label}
                   </span>
-                  <span className="text-gray-900 shrink-0" style={{ fontSize: "0.75rem", fontWeight: 600 }}>
-                    {pct}% <span className="text-gray-400" style={{ fontWeight: 400 }}>({count})</span>
+                  <span className="flex items-center gap-2.5 shrink-0">
+                    <span className="text-gray-400" style={{ fontSize: "0.75rem", fontWeight: 600 }}>
+                      {pct}%
+                    </span>
+                    <span
+                      className="text-gray-700 text-right"
+                      style={{ fontSize: "0.78rem", fontWeight: 600, width: "2.25rem" }}
+                    >
+                      {count}
+                    </span>
                   </span>
                 </div>
               );
