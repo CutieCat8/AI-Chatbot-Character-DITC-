@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Plus, Pencil, Trash2, Eye, Loader2, FileText, CircleAlert } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Eye, Loader2, FileText, CircleAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { listDocuments, deleteDocument, type DocumentOut, type SourceSite } from "../../lib/api";
 import { getDocumentStatus, DOCUMENT_STATUS_STYLE } from "../../lib/documentStatus";
 import { DocumentModal, type DocumentModalMode } from "./DocumentModal";
@@ -69,6 +69,10 @@ export function DocumentsGrid({
 }: DocumentsGridProps) {
   const [status, setStatus] = useState<FilterStatus>("all");
   const [page, setPage] = useState(1);
+  // "หน้าต่าง" ของปุ่มเลขหน้าที่โชว์อยู่ (เช่น 1-5, 6-10, ...) แยกจาก page จริงที่กำลังดูอยู่ —
+  // ผู้ว่าจ้างขอ 2026-09-21 ว่ากด `<`/`>` แล้วอยากให้แค่ "เปลี่ยนชุดปุ่มที่เห็น" ไม่ใช่ "เปลี่ยนหน้า
+  // ที่ดูอยู่จริง" ต้องกดเลขหน้าเองถึงจะย้ายไปดูหน้านั้น
+  const [pageWindowStart, setPageWindowStart] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [items, setItems] = useState<DocumentOut[]>([]);
@@ -116,6 +120,7 @@ export function DocumentsGrid({
   // เปลี่ยนตัวกรอง → กลับไปหน้าแรก
   useEffect(() => {
     setPage(1);
+    setPageWindowStart(1);
   }, [search, src, status]);
 
   const openModal = (mode: DocumentModalMode, id: number | null) => {
@@ -148,6 +153,21 @@ export function DocumentsGrid({
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // เดิม slice(0, 5) โชว์แค่หน้า 1-5 ตายตัวเสมอ ไม่มีปุ่มถัดไป/ก่อนหน้า พอเอกสารเกิน 60 รายการ
+  // (135 ตอนนี้) หน้า 6 เป็นต้นไปเลยกดเข้าไม่ได้เลยทั้งที่ footer บอก total ถูกต้องอยู่แล้ว
+  // (ผู้ว่าจ้างเจอ 2026-09-21) — เปลี่ยนเป็นชุดปุ่ม 5 หน้าต่อชุด (1-5, 6-10, ...) กด `<`/`>` แค่
+  // เลื่อนดูชุดถัดไป ไม่เปลี่ยนหน้าที่กำลังดูอยู่ ต้องกดเลขหน้าเองถึงจะย้ายจริง (ผู้ว่าจ้างขอ 2026-09-21)
+  const MAX_PAGE_BUTTONS = 5;
+  // ชุดสุดท้ายไม่ต้องดันย้อนกลับให้ครบ 5 ปุ่มเสมอ — ถ้าเหลือแค่ 11-12 ก็โชว์แค่นั้น ไม่ใช่ 8-12
+  const clampedWindowStart = Math.min(Math.max(1, pageWindowStart), totalPages);
+  // ชิดซ้ายเสมอ ช่องที่เหลือ (ชุดสุดท้ายที่ไม่ครบ 5 หน้า) เป็นที่ว่างล่องหนแทน ไม่ดันเลขไปชิดขวา —
+  // กันแถบปุ่มความกว้างกระโดดตอนสลับชุดด้วย (ผู้ว่าจ้างขอ 2026-09-21: "< 11 12 _ _ _ >" ไม่ใช่
+  // "< _ _ _ 11 12 >")
+  const pageSlots: (number | null)[] = Array.from({ length: MAX_PAGE_BUTTONS }, (_, i) => {
+    const p = clampedWindowStart + i;
+    return p <= totalPages ? p : null;
+  });
 
   return (
     <div className="flex flex-col gap-4">
@@ -284,10 +304,16 @@ export function DocumentsGrid({
         <span className="text-gray-300" style={{ fontSize: "0.73rem" }}>
           {items.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{(page - 1) * PAGE_SIZE + items.length} / {total} รายการ
         </span>
-        <div className="flex gap-0.5">
-          {Array.from({ length: totalPages }, (_, i) => i + 1)
-            .slice(0, 5)
-            .map((p) => (
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setPageWindowStart((w) => Math.max(1, w - MAX_PAGE_BUTTONS))}
+            disabled={clampedWindowStart <= 1}
+            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          {pageSlots.map((p, i) =>
+            p != null ? (
               <button
                 key={p}
                 onClick={() => setPage(p)}
@@ -296,7 +322,17 @@ export function DocumentsGrid({
               >
                 {p}
               </button>
-            ))}
+            ) : (
+              <span key={`empty-${i}`} className="w-7 h-7" aria-hidden="true" />
+            ),
+          )}
+          <button
+            onClick={() => setPageWindowStart((w) => w + MAX_PAGE_BUTTONS)}
+            disabled={clampedWindowStart + MAX_PAGE_BUTTONS > totalPages}
+            className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          >
+            <ChevronRight size={14} />
+          </button>
         </div>
       </div>
 
