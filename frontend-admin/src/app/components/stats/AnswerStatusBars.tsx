@@ -1,4 +1,5 @@
 import { ListChecks } from "lucide-react";
+import { ANSWER_STATUS_COLORS } from "./chartPalette";
 
 interface AnswerStatusBarsProps {
   answeredCount: number;
@@ -9,9 +10,9 @@ interface AnswerStatusBarsProps {
 // 3 กลุ่มนี้ไม่ overlap กันเลย (ดู routers/stats.py) — ผลรวมเท่ากับ total_conversations เป๊ะเสมอ
 // ลำดับ: ตอบได้ (เคย search จริง) ชนะเสมอ > นอกขอบเขตอย่างเดียว > ทักทาย/small-talk ล้วน ๆ
 const ROWS = [
-  { key: "answered", label: "ตอบได้จากฐานความรู้", color: "#111827" }, // gray-900
-  { key: "off_topic", label: "ถามนอกขอบเขต", color: "#9CA3AF" }, // gray-400
-  { key: "greeting", label: "ทักทาย/คุยเล่นอย่างเดียว", color: "#E5E7EB" }, // gray-200
+  { key: "answered", label: "ตอบได้จากฐานความรู้", color: ANSWER_STATUS_COLORS.answered },
+  { key: "off_topic", label: "ถามนอกขอบเขต", color: ANSWER_STATUS_COLORS.offTopic },
+  { key: "greeting", label: "ทักทาย/คุยเล่นอย่างเดียว", color: ANSWER_STATUS_COLORS.greeting },
 ] as const;
 
 const BAR_TRACK_HEIGHT = 88; // px — ความสูงเต็มแท่งตอน 100%

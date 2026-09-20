@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ListTree } from "lucide-react";
 import type { TopicCountOut } from "../../../lib/api";
+import { OTHER_TOPIC_COLOR, TOPIC_COLORS } from "./chartPalette";
 
 interface AllTopicsStatsTableProps {
   topics: TopicCountOut[];
@@ -21,6 +22,11 @@ export function AllTopicsStatsTable({ topics }: AllTopicsStatsTableProps) {
   }, [topics, sortDir]);
 
   const total = useMemo(() => topics.reduce((sum, t) => sum + t.count, 0), [topics]);
+  const colorFor = (topic: string) => {
+    if (topic === "other") return OTHER_TOPIC_COLOR;
+    const index = topics.findIndex((item) => item.topic === topic);
+    return TOPIC_COLORS[(index < 0 ? 0 : index) % TOPIC_COLORS.length];
+  };
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3.5 transition-all duration-300 ease-out hover:shadow-lg hover:border-gray-200">
@@ -67,19 +73,17 @@ export function AllTopicsStatsTable({ topics }: AllTopicsStatsTableProps) {
             >
               <span
                 className={`shrink-0 truncate transition-colors duration-150 ${
-                  t.topic === "other" ? "text-teal-600" : "text-gray-600 group-hover:text-gray-900"
+                  t.topic === "other" ? "" : "text-gray-600 group-hover:text-gray-900"
                 }`}
-                style={{ fontSize: "0.76rem", width: "13rem" }}
+                style={{ fontSize: "0.76rem", width: "13rem", color: t.topic === "other" ? OTHER_TOPIC_COLOR : undefined }}
                 title={t.label}
               >
                 {t.label}
               </span>
               <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
                 <div
-                  className={`h-full transition-all duration-300 ease-out group-hover:brightness-125 ${
-                    t.topic === "other" ? "bg-teal-500" : "bg-gray-800"
-                  }`}
-                  style={{ width: `${(t.count / max) * 100}%` }}
+                  className="h-full transition-all duration-300 ease-out group-hover:brightness-110"
+                  style={{ width: `${(t.count / max) * 100}%`, backgroundColor: colorFor(t.topic) }}
                 />
               </div>
               <span className="text-gray-400 shrink-0 text-right" style={{ fontSize: "0.72rem", width: "2.75rem" }}>

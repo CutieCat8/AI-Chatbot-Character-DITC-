@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { PieChart as PieIcon } from "lucide-react";
 import type { TopicCountOut } from "../../../lib/api";
 import { DitherDonutRing } from "./DitherDonutRing";
+import { OTHER_TOPIC_COLOR, TOPIC_COLORS } from "./chartPalette";
 
 interface TopicDonutCardProps {
   topics: TopicCountOut[];
@@ -10,8 +11,6 @@ interface TopicDonutCardProps {
 // ไล่โทนเทาเข้ม->อ่อนเหมือนแถบ Storage ใน StatusPanel.tsx (ไม่ใช้สีหลากเฉด — คงโทนเดียวกับที่เหลือ
 // ของแอป) ยกเว้น "other" ที่ไฮไลต์แยกให้สังเกตง่าย — เดิมใช้ sky แต่ชนความหมาย "syncing/live" ที่
 // sky มีอยู่แล้วใน StatusPanel.tsx เปลี่ยนมาใช้ teal แทน (2026-09-17 ผู้ว่าจ้างขอ ไม่เข้าธีม)
-const GRAY_RAMP = ["#111827", "#4B5563", "#9CA3AF", "#D1D5DB", "#E5E7EB"];
-const OTHER_COLOR = "#14B8A6"; // teal-500
 const MAX_SLICES = 4;
 
 export function TopicDonutCard({ topics }: TopicDonutCardProps) {
@@ -25,7 +24,8 @@ export function TopicDonutCard({ topics }: TopicDonutCardProps) {
     return { slices: rows, total };
   }, [topics]);
 
-  const colorFor = (topic: string, i: number) => (topic === "other" ? OTHER_COLOR : GRAY_RAMP[i % GRAY_RAMP.length]);
+  const colorFor = (topic: string, i: number) =>
+    topic === "other" ? OTHER_TOPIC_COLOR : TOPIC_COLORS[i % TOPIC_COLORS.length];
   const active = activeIndex !== null ? slices[activeIndex] : null;
 
   return (
@@ -58,7 +58,10 @@ export function TopicDonutCard({ topics }: TopicDonutCardProps) {
         </p>
       ) : (
         <>
-          <div className="relative flex items-center justify-center" style={{ width: "100%", height: 170 }}>
+          <div
+            className="relative flex items-center justify-center rounded-[14px] overflow-hidden bg-[#f4f4f6]"
+            style={{ width: "100%", height: 170 }}
+          >
             <DitherDonutRing
               slices={slices.map((s, i) => ({ key: s.topic, value: s.count, color: colorFor(s.topic, i) }))}
               activeIndex={activeIndex}

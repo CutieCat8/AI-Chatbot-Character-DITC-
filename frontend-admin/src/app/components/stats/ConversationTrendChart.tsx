@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TrendingUp } from "lucide-react";
 import type { DailyConversationCountOut } from "../../../lib/api";
+import { TREND_COLORS } from "./chartPalette";
 
 interface ConversationTrendChartProps {
   dailyCounts: DailyConversationCountOut[];
@@ -10,9 +11,6 @@ interface ConversationTrendChartProps {
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
 }
-
-const DARK = "#111827"; // gray-900 — เดียวกับตัวเลข KPI/แถบ storage ใน StatusPanel.tsx
-const LIGHT = "#E5E7EB"; // gray-200
 
 export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartProps) {
   const data = useMemo(() => dailyCounts.map((d) => ({ ...d, label: formatDay(d.date) })), [dailyCounts]);
@@ -100,7 +98,7 @@ export function ConversationTrendChart({ dailyCounts }: ConversationTrendChartPr
               {data.map((_, i) => (
                 <Cell
                   key={i}
-                  fill={i === highlighted ? DARK : LIGHT}
+                  fill={i === highlighted ? TREND_COLORS.active : TREND_COLORS.inactive}
                   style={{
                     filter: i === highlighted ? "drop-shadow(0 4px 6px rgba(17,24,39,0.35))" : "none",
                     cursor: "pointer",

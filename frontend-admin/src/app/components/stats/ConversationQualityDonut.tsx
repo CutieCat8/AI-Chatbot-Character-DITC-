@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from "recharts";
-import type { PieSectorDataItem } from "recharts/types/polar/Pie";
+import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { Sparkles } from "lucide-react";
+import { QUALITY_COLORS } from "./chartPalette";
 
 interface ConversationQualityDonutProps {
   totalConversations: number;
@@ -9,33 +9,14 @@ interface ConversationQualityDonutProps {
 }
 
 // สองสีเดียวกับแถบ Storage ใน StatusPanel.tsx (gray-800/gray-300) — คงโทนเดียวกับที่เหลือของแอป
-const REAL_COLOR = "#1F2937"; // gray-800
-const TRACK_COLOR = "#E5E7EB"; // gray-200
-
-// เอฟเฟกต์ hover เดียวกับ TopicDonutCard.tsx (โต 6px + drop-shadow ตอนชี้เมาส์)
-function renderActiveShape(props: PieSectorDataItem) {
-  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
-  return (
-    <Sector
-      cx={cx}
-      cy={cy}
-      innerRadius={innerRadius}
-      outerRadius={(outerRadius ?? 0) + 6}
-      startAngle={startAngle}
-      endAngle={endAngle}
-      fill={fill}
-      cornerRadius={6}
-      style={{ filter: "drop-shadow(0 6px 10px rgba(17,24,39,0.25))", transition: "filter 200ms ease" }}
-    />
-  );
-}
+const REAL_COLOR = QUALITY_COLORS.conversation;
+const TRACK_COLOR = QUALITY_COLORS.noise;
 
 // สัดส่วน "บทสนทนาที่มีคำถามจริง" เทียบกับ "เสียงรบกวน/คนเดินผ่าน" (noise) จาก grand total ทั้งหมด —
 // สองก้อนนี้ไม่ overlap กันเลย (ตัดสินใจแล้วที่ session_tracker.py: NOISE คือไม่เคยเรียก search/
 // off_topic เลยสักครั้ง) ต่างจาก unclassified/other ที่เป็น tag ซ้อนกันได้ ใช้ทำเกจแบบนี้ไม่ได้ตรง ๆ
 //
-// เกจครึ่งวงกลม (แทนโดนัทเต็มวงเดิม) ตามภาพอ้างอิงที่ผู้ว่าจ้างส่งมา (Customer Satisfaction Score
-// gauge) — ทำด้วย Pie ตัวเดียวกัน แค่ตั้ง startAngle/endAngle ให้กวาดครึ่งบนแทนเต็มวง
+// เกจโค้ง 240° ปลายมน อ้างอิงรูปแบบ Mono Rounded Gauge Arc ของ Amicro
 export function ConversationQualityDonut({ totalConversations, noiseCount }: ConversationQualityDonutProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const grandTotal = totalConversations + noiseCount;
@@ -72,7 +53,10 @@ export function ConversationQualityDonut({ totalConversations, noiseCount }: Con
         </p>
       ) : (
         <>
-          <div className="relative" style={{ width: "100%", height: 130 }}>
+          <div
+            className="relative rounded-[14px] overflow-hidden bg-[#f4f4f6]"
+            style={{ width: "100%", height: 150 }}
+          >
             <ResponsiveContainer>
               <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                 <Pie
@@ -80,16 +64,15 @@ export function ConversationQualityDonut({ totalConversations, noiseCount }: Con
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
-                  cy="100%"
-                  innerRadius={72}
-                  outerRadius={104}
-                  cornerRadius={6}
-                  paddingAngle={2}
+                  cy="70%"
+                  innerRadius={54}
+                  outerRadius={72}
+                  cornerRadius={8}
+                  paddingAngle={4}
                   stroke="none"
-                  startAngle={180}
-                  endAngle={0}
-                  activeIndex={activeIndex ?? undefined}
-                  activeShape={renderActiveShape}
+                  strokeLinecap="round"
+                  startAngle={210}
+                  endAngle={-30}
                   onMouseEnter={(_, i) => setActiveIndex(i)}
                   onMouseLeave={() => setActiveIndex(null)}
                 >
@@ -98,11 +81,11 @@ export function ConversationQualityDonut({ totalConversations, noiseCount }: Con
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
-            <div className="absolute inset-x-0 bottom-0 flex flex-col items-center pointer-events-none">
+            <div className="absolute inset-x-0 bottom-3 flex flex-col items-center pointer-events-none">
               {/* ค่ากลางเกจคงที่เสมอไม่สลับตามที่ชี้เมาส์แล้ว (ดูรายละเอียด pill ที่ header แทน) */}
-              <span className="text-gray-900" style={{ fontSize: "1.9rem", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1 }}>
+              <span className="text-gray-900 tabular-nums" style={{ fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1 }}>
                 {realPct}
-                <span className="text-gray-400" style={{ fontSize: "1rem", fontWeight: 600 }}>
+                <span className="text-gray-400" style={{ fontSize: "0.82rem", fontWeight: 600 }}>
                   /100
                 </span>
               </span>
