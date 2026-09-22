@@ -332,6 +332,14 @@ async def voice_ws(websocket: WebSocket) -> None:
                             # ดู docstring ของ flag_conversation_end() ใน session_tracker.py
                             logger.info("voice conversation-end flagged")
                             tracker.flag_conversation_end()
+                            # แจ้ง frontend ทันที (feat/session-idle-sleep) — ไม่ใช่แค่ analytics
+                            # boundary ของ tracker เท่านั้น frontend เอา flag นี้ไปตัด mic/WS จริงตอน
+                            # เสียงลาพูดจบจริง (ดู useVoiceSocket.ts: "conversation_end" รอ hangover
+                            # เดียวกับ BOT_SPEECH_END_HANGOVER_MS ก่อนตัด ไม่ใช่ตัดทันทีตรงนี้) ส่งแค่
+                            # ข้อความบน WS ของเราเอง ไม่แตะ session.send_client_content()/
+                            # send_realtime_input() ของ Gemini เลยสักจุด — ไม่เข้าเงื่อนไข interleaving
+                            # ที่ SDK เตือนไว้ (ดู CLAUDE.md เรื่อง greet-first saga)
+                            await websocket.send_json({"type": "conversation_end"})
                             function_responses.append(
                                 types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "acknowledged"})
                             )

@@ -150,6 +150,35 @@
   ส่วนปัญหาคำลงท้าย "จ่ะ/จ๊ะ/จ้า" บางทีไม่ขึ้นใน transcript เลย เป็นข้อจำกัดของ Web Speech API เอง
   (STT accuracy ของ engine) ไม่ใช่บั๊กแอป — ไม่มีทางแก้ที่ layer นี้
 
+  **Session-idle-sleep — เขียนแล้ว ยังไม่เคยทดสอบกับอุปกรณ์จริง (2026-09-22, branch
+  `feat/session-idle-sleep`):** บั๊กเดิม: `BACKEND_SESSION_SILENCE_TIMEOUT_S`/`IDLE_TO_SLEEP_MS` ปิด
+  session แค่ในเชิงนับ (analytics) หรือ cosmetic catState เท่านั้น ไมค์/WS จริงยังเปิดต่อ ตอบสนองทันที
+  ไม่ต้องพูดคำปลุกใหม่ — ไม่ตรงพฤติกรรมที่ต้องการ แก้แล้วสองทาง:
+  - **Silence timeout (client-side ล้วน):** `resetIdleTimer()` ใน `useVoiceSocket.ts` เดิมแค่
+    `setCatStateSafe("sleep")` ตอนครบ `IDLE_TO_SLEEP_MS` เปลี่ยนเป็นเรียก `disconnect({toState:
+    "sleep"})` ตัวเต็ม (ตัด mic tracks + AudioContext + WS จริง) — ไม่ต้องแตะ backend เลยเพราะ client
+    รู้ "ความเงียบจริง" (ไม่มีทั้งเสียงผู้ใช้/แมว) อยู่แล้วจากจุดเรียก `resetIdleTimer()` ที่มีอยู่เดิม
+    เพิ่มจุดเรียกใหม่หนึ่งจุด: ตอนเข้า `isThinking` (รอ retrieval/LLM) ด้วย กัน timer ตัดสายกลางคันถ้า
+    ตอบช้ากว่า 15 วิ (ตัดสินใจร่วมกับเจ้าของงาน 2026-09-22 — เสี่ยงจริงต่ำแต่ผลกระทบแย่กว่าเดิมเพราะ
+    timer ทำ teardown จริงแล้วไม่ใช่แค่ cosmetic flip)
+  - **Farewell (`flag_conversation_end`):** backend ส่ง `{"type":"conversation_end"}` ทันทีที่ tool
+    call มาถึง (จุดเดียวกับ `tracker.flag_conversation_end()` ใน `routers/voice.py`) — ส่งแค่บน WS
+    ของเราเอง ไม่แตะ `send_client_content()`/`send_realtime_input()` ของ Gemini เลย จึงไม่เข้าเงื่อนไข
+    interleaving ที่ทำให้เกิด greet-first saga 6 รอบด้านบน frontend ตั้ง flag รอไว้ก่อน ตัดจริงที่จุด
+    เดียวกับที่ `tick()` ตัดสิน `wake -> transition -> idle` ปกติอยู่แล้ว (รอ `BOT_SPEECH_END_HANGOVER_MS`
+    ผ่านไปก่อน กันตัดเสียงลากลางประโยค)
+  - **Barge-in ระหว่างกำลังจะปิด (หลัง `flag_conversation_end`):** ตัดสินใจร่วมกับเจ้าของงาน —
+    **ปิดเด็ดขาด ไม่รองรับ cancel** ต้องพูดคำปลุกใหม่เท่านั้น (ไม่ใช่แค่พูดแทรก) เหตุผล: half-duplex ที่
+    มีอยู่แล้วบล็อกไม่ให้เสียงผู้ใช้ถูกส่งเข้า Gemini ระหว่างแมวพูดอยู่แล้วทั้งหมด ไม่มี barge-in จริงที่
+    ต้อง cancel ตั้งแต่แรก — เลือกทางง่าย ไม่เพิ่ม state machine ใหม่ ตรงกับที่เจ้าของงานกังวลเรื่องพื้นที่
+    เสี่ยงบั๊ก timing (ดู greet-first saga)
+  - wake-word re-arm หลัง teardown ไม่ต้องแก้อะไรเพิ่ม — เงื่อนไข `enabled` ของ `useWakeWord` ใน
+    `App.tsx` เช็ค `connectionState` idle/closed **และ** `catState` idle/sleep อยู่แล้วทั้งคู่ ผ่านทันที
+    ที่ `disconnect()` ทำงาน
+  - typecheck (`tsc -b`) + vitest (19/19) ผ่าน — **ยังไม่เคยทดสอบด้วยไมค์จริง/อุปกรณ์จริงเลยสักครั้ง**
+    (ห้ามอ้างว่าทดสอบแล้วตามกติกาข้อ 1) ต้องลองพูดคำปลุก คุยจบด้วยคำลา ปล่อยเงียบเกิน 15 วิ และปล่อยให้
+    retrieval ช้า ๆ ดูว่า session ไม่ถูกตัดกลางคัน ก่อนเชื่อว่าใช้งานได้จริง
+
 ## ข้อกำหนดที่ห้ามละเมิด
 
 - **รองรับสองภาษา ไทยและอังกฤษ ตรวจจับอัตโนมัติ**
