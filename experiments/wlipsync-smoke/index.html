@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>wLipSync 1.3.1 isolated smoke test</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body { font-family: ui-monospace, monospace; margin: 2rem; max-width: 90rem; }
+      button { font: inherit; padding: 0.65rem 1rem; }
+      pre { background: #111; color: #d9faff; padding: 1rem; white-space: pre-wrap; }
+      .pass { color: #087a38; }
+      .fail { color: #b00020; }
+    </style>
+  </head>
+  <body>
+    <h1>wLipSync 1.3.1 isolated smoke test</h1>
+    <p>This harness uses generated tones only. It does not test phoneme accuracy.</p>
+    <button id="run" type="button">Run smoke test</button>
+    <p id="status">Ready</p>
+    <pre id="output"></pre>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "ditc-wlipsync-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch:fixtures": "node scripts/fetch-fixtures.mjs",
+    "generate:variants": "node scripts/generate-variants.mjs",
+    "audit:source": "node scripts/audit-source.mjs",
+    "serve": "node server.mjs"
+  },
+  "dependencies": {
+    "wlipsync": "1.3.1"
+  }
+}
