@@ -5,5 +5,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "jsdom",
+    // Keep generated visual-review artifacts (including retained browser profiles) out of discovery.
+    include: ["src/**/*.test.ts"],
   },
 });

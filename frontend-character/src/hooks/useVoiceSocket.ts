@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CatViseme } from "../lib/catVisemes";
+import { normalizeVisemeTimeline, type VisemeCue } from "../lib/visemeTimeline";
+import { useVisemeTimeline } from "./useVisemeTimeline";
 import { logWake } from "../lib/wakeLog";
 import type { CatState } from "../types";
 
@@ -110,6 +113,10 @@ interface UseVoiceSocketResult {
    */
   offTopic: boolean;
   amplitude: number;
+  currentViseme: CatViseme;
+  visemeTimeline: readonly VisemeCue[];
+  visemeProgress: number;
+  currentVisemeCue: VisemeCue | null;
   transcript: string;
   errorMessage: string | null;
   /** `playGreeting`: เล่นเสียงทักทายจากไฟล์ (`GREETING_AUDIO_URL`) ทันทีตอนเริ่ม connect — ใช้เฉพาะ
@@ -176,7 +183,7 @@ export function computeChunkSchedule(
   return { startTime, nextPlayTime: startTime + duration, hadGap };
 }
 
-export type ScheduledAudio = { startTime: number; endTime: number };
+export type ScheduledAudio = { startTime: number; endTime: number; source?: AudioBufferSourceNode };
 
 /** True only while an actual PCM chunk is playing, not during queued silence. */
 export function isScheduledAudioPlaying(scheduled: ScheduledAudio[], now: number): boolean {
@@ -189,9 +196,8 @@ export function isScheduledAudioPlaying(scheduled: ScheduledAudio[], now: number
  * React hook แล้วเพิ่ม 2 อย่างที่ voice_test.html ไม่มี:
  *   1. Half-duplex (ปิดไมค์ตอนแมวพูด) — เหตุผลเดียวกับที่ตัดสินใจไว้ใน voice_pipeline_dev.py:
  *      เครื่อง dev ไม่มี AEC ฮาร์ดแวร์ เสียงลำโพงจะหลุดเข้าไมค์แล้วสับสนกับเสียงพูดจริงได้
- *   2. amplitude สำหรับขับ lip-flap — วัดจาก "เสียงที่กำลังเล่นออกจริง" ผ่าน AnalyserNode ที่ต่อ
- *      อยู่ในเส้นทางเล่นเสียงจริง ไม่ใช่วัดตอนเพิ่งรับข้อมูลมาจาก WS (ซึ่งจะเพี้ยนไปหน้า jitter
- *      buffer ~1.5s ทำให้ปากขยับก่อนเสียงจริงจะดังก็ได้)
+ *   2. timeline สำหรับ lip-sync ใช้ transcript + ระยะ PCM จริง และอ้างอิงนาฬิกา AudioContext
+ *      ส่วน amplitude ใช้บอก activity/openness เท่านั้น ไม่เลือกชนิดรูปปาก
  */
 export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketResult {
   const debugEnabled = opts.debug ?? false;
@@ -208,6 +214,9 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const [amplitude, setAmplitude] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [visemeTimeline, setVisemeTimeline] = useState<VisemeCue[]>([]);
+  const [timelineAudioStartTime, setTimelineAudioStartTime] = useState<number | null>(null);
+  const [timelineAudioContext, setTimelineAudioContext] = useState<AudioContext | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -221,6 +230,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const scheduledAudioRef = useRef<ScheduledAudio[]>([]);
   const playbackBufferedMsRef = useRef(0);
   const playbackStartedRef = useRef(false);
+  const pendingTimelineOriginRef = useRef(false);
+  const activeVisemeTurnRef = useRef<number | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catStateRef = useRef<CatState>("idle"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
@@ -247,6 +258,13 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   // hangover ก่อนยอมรับว่าจบเทิร์นจริง — ดู BOT_SPEECH_END_HANGOVER_MS) null = ยังไม่เห็นช่องว่างเลย
   // หรือแมวกลับมาพูดต่อแล้วก่อนครบ hangover (reset กลับ null ทุกครั้งที่ speaking กลับมา true)
   const botSpeechEndSinceRef = useRef<number | null>(null);
+  const visemeFrame = useVisemeTimeline({
+    timeline: visemeTimeline,
+    audioStartTime: timelineAudioStartTime,
+    isPlaying: botSpeaking,
+    audioContext: timelineAudioContext,
+  });
+  const currentViseme = visemeFrame.currentViseme;
 
   const setCatStateSafe = useCallback((s: CatState) => {
     catStateRef.current = s;
@@ -294,6 +312,11 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     wsRef.current?.close();
     void audioCtxRef.current?.close();
     audioCtxRef.current = null;
+    setTimelineAudioContext(null);
+    setTimelineAudioStartTime(null);
+    setVisemeTimeline([]);
+    activeVisemeTurnRef.current = null;
+    pendingTimelineOriginRef.current = false;
     setConnectionStateSafe("closed");
     setCatStateSafe(options?.toState ?? "idle");
     setAmplitude(0);
@@ -341,6 +364,11 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
 
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
+    setTimelineAudioContext(audioCtx);
+    setTimelineAudioStartTime(null);
+    setVisemeTimeline([]);
+    activeVisemeTurnRef.current = null;
+    pendingTimelineOriginRef.current = false;
     // มือถือ (Android Chrome รวมถึง Safari) เข้มงวดเรื่อง autoplay กว่า desktop บางรุ่น AudioContext
     // ที่สร้างใหม่อาจเริ่มที่ state "suspended" แม้จะสร้างระหว่าง user gesture (คลิกปุ่ม "เริ่มคุย")
     // ก็ตาม — resume() ตรงนี้ (ยังอยู่ในเส้นทางเดียวกับ gesture handler) ชัวร์กว่าปล่อยเดา
@@ -401,7 +429,11 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       );
       source.start(startTime);
       nextPlayTimeRef.current = nextPlayTime;
-      scheduledAudioRef.current.push({ startTime, endTime: startTime + buffer.duration });
+      scheduledAudioRef.current.push({ startTime, endTime: startTime + buffer.duration, source });
+      if (pendingTimelineOriginRef.current) {
+        pendingTimelineOriginRef.current = false;
+        setTimelineAudioStartTime(startTime);
+      }
     };
 
     const pendingQueue: ArrayBuffer[] = [];
@@ -658,9 +690,35 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     };
     ws.onmessage = (event) => {
       if (typeof event.data === "string") {
-        const msg = JSON.parse(event.data) as { type: string; text?: string };
+        const msg = JSON.parse(event.data) as {
+          type: string;
+          text?: string;
+          turnId?: number;
+          timeline?: VisemeCue[];
+        };
         if (msg.type === "transcript" && msg.text) {
           setTranscript((prev) => prev + msg.text);
+        } else if (msg.type === "viseme_turn_start" && typeof msg.turnId === "number") {
+          activeVisemeTurnRef.current = msg.turnId;
+          pendingTimelineOriginRef.current = true;
+          setTimelineAudioStartTime(null);
+          setVisemeTimeline([]);
+        } else if (
+          msg.type === "viseme_timeline" &&
+          typeof msg.turnId === "number" &&
+          msg.turnId === activeVisemeTurnRef.current &&
+          Array.isArray(msg.timeline)
+        ) {
+          setVisemeTimeline(normalizeVisemeTimeline(msg.timeline));
+        } else if (msg.type === "viseme_interrupted") {
+          for (const scheduled of scheduledAudioRef.current) {
+            try { scheduled.source?.stop(); } catch { /* already ended */ }
+          }
+          scheduledAudioRef.current = [];
+          nextPlayTimeRef.current = audioCtx.currentTime;
+          setVisemeTimeline([]);
+          setTimelineAudioStartTime(null);
+          pendingTimelineOriginRef.current = false;
         } else if (msg.type === "turn_complete") {
           // เจอจริง (2026-09-14): transcript สะสมข้ามทั้ง session แบบไม่มีจุดแบ่งเทิร์นเลย ทำให้
           // บทสนทนาหลายเทิร์นปกติ (ผู้ใช้ถามต่อเนื่องหลายคำถามระหว่างทดสอบ) อ่านเหมือนแมวพูดเองไม่
@@ -715,6 +773,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       setIsThinking(false);
       setOffTopic(false);
       setAmplitude(0);
+      setVisemeTimeline([]);
+      setTimelineAudioStartTime(null);
       hasBotSpokenThisTurnRef.current = false;
       botSpeechEndSinceRef.current = null;
       pendingConversationEndRef.current = false;
@@ -726,5 +786,21 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
 
-  return { connectionState, catState, botSpeaking, isThinking, offTopic, amplitude, transcript, errorMessage, connect, disconnect, debugVad };
+  return {
+    connectionState,
+    catState,
+    botSpeaking,
+    isThinking,
+    offTopic,
+    amplitude,
+    currentViseme,
+    visemeTimeline,
+    visemeProgress: visemeFrame.progressWithinCue,
+    currentVisemeCue: visemeFrame.cue,
+    transcript,
+    errorMessage,
+    connect,
+    disconnect,
+    debugVad,
+  };
 }

@@ -27,12 +27,14 @@ from app.models.enums import SessionEndReason, Speaker
 from app.rag.embedding import get_embedder
 from app.rag.retrieval import keyword_search, normalize_query, search
 from app.services.session_tracker import SessionTracker
+from app.services.viseme_timeline import TimedWord, build_viseme_timeline, build_word_aligned_viseme_timeline
 
 logger = logging.getLogger("routers.voice")
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 
 MODEL = "gemini-3.1-flash-live-preview"
+OUTPUT_PCM_BYTES_PER_SECOND = 24_000 * 2  # PCM16 mono
 
 # Gemini Live จำกัดอายุ session แบบ audio-only ไว้ที่ 15 นาที (เอกสาร:
 # https://ai.google.dev/gemini-api/docs/live-session) ก่อนตัดจริงจะส่ง "GoAway" มาล่วงหน้า ~60s
@@ -205,7 +207,7 @@ async def voice_ws(websocket: WebSocket) -> None:
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Despina"),
                 ),
             ),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(mode="VERBATIM", word_timestamp=True),
             # จำกัด language_codes เสมอตามกฎ CLAUDE.md (ห้าม auto-detect เปิดกว้างทุกภาษา) — เคยเจอบั๊ก
             # เดาเป็นอินโดนีเซียมาแล้วจริงตอนทดสอบเสียงคนจริง (ดู docs/adr/voice-stt-real-world-test.md)
             # ไฟล์นี้ตกหล่นไปจาก voice_pipeline_dev.py ที่แก้ไว้แล้ว
@@ -283,6 +285,39 @@ async def voice_ws(websocket: WebSocket) -> None:
         ปกติ ใช้ dict ส่งสถานะออกง่ายกว่า)
         """
         loop = asyncio.get_running_loop()
+        turn_audio_bytes = 0
+        turn_transcript = ""
+        turn_words: list[TimedWord] = []
+        turn_id = 1
+        timeline_revision = 0
+        last_timeline_duration_ms = 0
+
+        async def send_viseme_timeline(*, final: bool = False) -> None:
+            """Send a replaceable timeline snapshot tied to received PCM duration."""
+            nonlocal timeline_revision, last_timeline_duration_ms
+            duration_ms = round(turn_audio_bytes / OUTPUT_PCM_BYTES_PER_SECOND * 1000)
+            if not turn_transcript.strip() or duration_ms <= 0:
+                return
+            timeline_revision += 1
+            last_timeline_duration_ms = duration_ms
+            timeline = (
+                build_word_aligned_viseme_timeline(turn_words, duration_ms)
+                if turn_words
+                else build_viseme_timeline(turn_transcript, duration_ms)
+            )
+            await websocket.send_json(
+                {
+                    "type": "viseme_timeline",
+                    "timeline": timeline,
+                    "durationMs": duration_ms,
+                    "text": turn_transcript,
+                    "revision": timeline_revision,
+                    "final": final,
+                    "source": "word_timestamps" if turn_words else "text_fallback",
+                    "turnId": turn_id,
+                }
+            )
+
         while True:
             async for response in session.receive():
                 if response.session_resumption_update and response.session_resumption_update.resumable:
@@ -302,6 +337,15 @@ async def voice_ws(websocket: WebSocket) -> None:
                     )
                     resumption_state["go_away"] = True
                     return
+
+                if response.server_content and getattr(response.server_content, "interrupted", False):
+                    await websocket.send_json({"type": "viseme_interrupted", "turnId": turn_id})
+                    turn_audio_bytes = 0
+                    turn_transcript = ""
+                    turn_words = []
+                    turn_id += 1
+                    timeline_revision = 0
+                    last_timeline_duration_ms = 0
 
                 if response.tool_call:
                     function_responses = []
@@ -368,7 +412,13 @@ async def voice_ws(websocket: WebSocket) -> None:
                     # เสียงเทียบกับ transcript ได้ตรงๆ โดยไม่ต้องเดา (เดิมเคยผูกไว้กับกลไก greet-first
                     # ที่ตัดออกไปแล้ว — ดู CLAUDE.md เรื่องเลิกใช้ send_client_content)
                     logger.info("[audio_arrival_diag] เสียงมาถึง: data_len=%d", len(response.data))
+                    if turn_audio_bytes == 0:
+                        await websocket.send_json({"type": "viseme_turn_start", "turnId": turn_id})
+                    turn_audio_bytes += len(response.data)
                     await websocket.send_bytes(response.data)
+                    current_duration_ms = round(turn_audio_bytes / OUTPUT_PCM_BYTES_PER_SECOND * 1000)
+                    if turn_transcript and current_duration_ms - last_timeline_duration_ms >= 240:
+                        await send_viseme_timeline()
 
                 # getattr แบบ default None ตลอด — SDK จริงมี field นี้เสมอ (ดู build_config ที่ขอ
                 # input_audio_transcription ไว้) แต่ test double (tests/test_voice_ws_multiturn.py ใช้
@@ -391,12 +441,32 @@ async def voice_ws(websocket: WebSocket) -> None:
                     )
 
                 if response.server_content and response.server_content.output_transcription:
-                    text_piece = response.server_content.output_transcription.text
+                    output_transcription = response.server_content.output_transcription
+                    text_piece = output_transcription.text
                     if text_piece:
                         # สัญญาณให้ topic classifier — ข้อความที่แมวพูดตอบเอง (ไม่ใช่คำพูดผู้ใช้)
                         # กันเคส greeting/small-talk ที่ไม่มีการเรียก tool เลยทั้งเทิร์น
                         tracker.record_signal(text_piece)
+                        turn_transcript += text_piece
+                        for word_info in getattr(output_transcription, "words", None) or []:
+                            word = getattr(word_info, "word", None)
+                            start_offset = getattr(word_info, "start_offset", None)
+                            end_offset = getattr(word_info, "end_offset", None)
+                            if not word or not start_offset or not end_offset:
+                                continue
+                            try:
+                                timed_word: TimedWord = {
+                                    "word": word,
+                                    "startMs": round(float(start_offset.removesuffix("s")) * 1000),
+                                    "endMs": round(float(end_offset.removesuffix("s")) * 1000),
+                                }
+                            except ValueError:
+                                logger.warning("voice_ws: parse word timestamp ไม่ได้: %r-%r", start_offset, end_offset)
+                                continue
+                            if timed_word not in turn_words:
+                                turn_words.append(timed_word)
                         await websocket.send_json({"type": "transcript", "text": text_piece})
+                        await send_viseme_timeline()
 
                 if response.server_content and response.server_content.turn_complete:
                     # ตัวเดียวกับที่ turn_complete ส่งให้ frontend — ใช้เป็นจุดนับ turn ฝั่งแมวของ
@@ -408,7 +478,14 @@ async def voice_ws(websocket: WebSocket) -> None:
                         # เรียบร้อยแล้ว) ไม่แตะ WS/mic/audio ใด ๆ เลย — คุยต่อได้ปกติถ้ามีคนพูดต่อ
                         # (จะนับเป็น session ใหม่ทันทีเพราะ turns ถูกล้างไปแล้วที่นี่)
                         await tracker.close_now(SessionEndReason.USER_GOODBYE)
+                    await send_viseme_timeline(final=True)
                     await websocket.send_json({"type": "turn_complete"})
+                    turn_audio_bytes = 0
+                    turn_transcript = ""
+                    turn_words = []
+                    turn_id += 1
+                    timeline_revision = 0
+                    last_timeline_duration_ms = 0
 
     resumption_handle: str | None = None
     consecutive_failures = 0
