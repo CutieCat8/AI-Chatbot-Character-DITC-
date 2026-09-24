@@ -37,7 +37,12 @@ const BOT_SPEECH_END_HANGOVER_MS = 700;
 // เดียวกับ BOT_SPEECH_END_HANGOVER_MS ตรงๆ (ปรากฏการณ์เดียวกัน มีหลักฐานรองรับค่าเดียวกันอยู่แล้ว ไม่
 // ต้องคิดค่าใหม่) — ดู onaudioprocess ที่ใช้จริง
 const MIC_MUTE_HANGOVER_MS = BOT_SPEECH_END_HANGOVER_MS;
-const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
+const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ระหว่างบทสนทนาถึงตัดสาย (silence timeout) — ไม่ใช่ real Sleep (ดู SLEEP_AFTER_INACTIVITY_MS)
+// ไม่มีใครมาปลุกเลยนานแค่ไหน (นับตั้งแต่กลับมา "ไม่มีใครใช้งาน" จริง ไม่ใช่ระหว่างบทสนทนา) ถึงเข้า
+// สถานะ Sleep จริงตาม TOR (เจ้าของงานยืนยัน 2026-09-24 — 5 นาที) ตั้งใจแยกจาก IDLE_TO_SLEEP_MS ข้างบน
+// เพราะคนละจุดประสงค์: ตัวนั้นสั้น กันสายค้างกลางบทสนทนา ส่วนนี้ยาวกว่ามาก กันคนเดินผ่านมาเจอแมวหลับ
+// ทั้งที่เพิ่งมีคนคุยจบไปเมื่อกี้ (ดู armSleepTimer ด้านล่าง)
+const SLEEP_AFTER_INACTIVITY_MS = 5 * 60 * 1000;
 
 // เล่นตอนตื่นด้วยคำปลุก (ดู App.tsx: useWakeWord's onDetected -> connect({ playGreeting: true }))
 // (2026-09-15) **แทนที่** กลไก greet-first เดิมทั้งหมด (เคยส่ง synthetic turn ผ่าน
@@ -234,6 +239,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const activeVisemeTurnRef = useRef<number | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catStateRef = useRef<CatState>("idle"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
   const wasSpeechRef = useRef(false); // เดิม/จบพูดรอบล่าสุด — ใช้ส่ง speech_start/speech_end ให้ backend
   const silentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนส่ง speech_end จริง
@@ -292,14 +298,35 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   }, []);
 
   /**
+   * ตั้งเวลานับถอยหลัง SLEEP_AFTER_INACTIVITY_MS (5 นาที) เข้าสถานะ Sleep จริง — แยกจาก
+   * resetIdleTimer/IDLE_TO_SLEEP_MS ที่คุมแค่ความเงียบระหว่างบทสนทนา (15 วิ, ตัดสาย) เรียกทุกครั้งที่
+   * กลับมา "ไม่มีใครใช้งาน" จริง (ท้าย disconnect() และ ws.onclose) และตอน mount ครั้งแรก เช็คซ้ำตอนหมด
+   * เวลาว่า catState ยังเป็น "idle" และไม่ได้เชื่อมต่ออยู่จริง (กันยิงทับกรณีมีคนเริ่มคุยพอดีก่อนครบเวลา
+   * แต่ timer เก่ายังไม่ทันโดน clear) — ฝั่ง connect() clear timer นี้ทันทีที่เริ่มเชื่อมต่อจริงอยู่แล้ว
+   */
+  const armSleepTimer = useCallback(() => {
+    if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
+    sleepTimerRef.current = setTimeout(() => {
+      if (
+        catStateRef.current === "idle" &&
+        connectionStateRef.current !== "connected" &&
+        connectionStateRef.current !== "connecting"
+      ) {
+        logWake("sleep_after_inactivity");
+        setCatStateSafe("sleep");
+      }
+    }, SLEEP_AFTER_INACTIVITY_MS);
+  }, [setCatStateSafe]);
+
+  /**
    * `toState`: ปัจจุบันใช้แค่ "idle" เสมอไม่ว่าจะจบบทสนทนาทางไหน (ปุ่ม "หยุดคุย", silence timeout,
    * หรือ flag_conversation_end) — เจ้าของงานตัดสินใจ (2026-09-24) ว่าหน้าแมวหลับตาหลังจบบทสนทนาทุกครั้ง
    * ทำให้ดูเหมือนเครื่องปิด/พัง คนถัดไปไม่กล้าเข้ามาใช้ ต้องกลับไป "idle" (ตาตื่น) เหมือนสถานะก่อนเริ่ม
    * บทสนทนาแทน (flow: Idle → wake word → Wake (คุย) → จบ → กลับ Idle ไม่ใช่ Sleep) "sleep" ยังคงมีอยู่
-   * ใน CatState ตาม TOR แต่จะผูกกับ inactivity timer แยกต่างหาก (ระยะยาวกว่ามาก ไม่มีใครปลุกเลย) ซึ่ง
-   * ยังไม่ได้ทำ — เก็บเป็น backlog แยก (ดู CLAUDE.md) `toState` ยังเปิดไว้ให้ override ได้เผื่ออนาคต แต่
-   * ตอนนี้ทุกจุดเรียกส่ง "idle" เหมือนกันหมด — wake-word re-arm ยังทำงานถูกอยู่เพราะเงื่อนไข `enabled`
-   * ของ useWakeWord ใน App.tsx เช็ค catState "idle" อยู่แล้ว (เดิมเช็ค idle/sleep คู่กัน)
+   * ใน CatState ตาม TOR แต่ผูกกับ inactivity timer แยกต่างหาก (armSleepTimer ด้านบน — 5 นาทีไม่มีใคร
+   * ปลุกเลย ไม่ใช่ทุกครั้งที่บทสนทนาจบ) `toState` ยังเปิดไว้ให้ override ได้เผื่ออนาคต แต่ตอนนี้ทุกจุด
+   * เรียกส่ง "idle" เหมือนกันหมด — wake-word re-arm ยังทำงานถูกอยู่เพราะเงื่อนไข `enabled` ของ
+   * useWakeWord ใน App.tsx เช็ค catState idle/sleep คู่กัน (ทั้งสองค่าทำให้ enabled จริงเหมือนกัน)
    */
   const disconnect = useCallback((options?: { toState?: CatState }) => {
     // เช็คก่อนว่าเคย connect จริงไหม — กัน React StrictMode (dev mode double-invoke effect)
@@ -328,7 +355,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setOffTopic(false);
     setDebugVad(null);
     pendingConversationEndRef.current = false;
-  }, [setCatStateSafe, setConnectionStateSafe]);
+    armSleepTimer();
+  }, [armSleepTimer, setCatStateSafe, setConnectionStateSafe]);
 
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
@@ -356,6 +384,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       return;
     }
     logWake("connect_start", options?.playGreeting ? "playGreeting=true" : "playGreeting=false");
+    if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current); // มีคนเริ่มคุยจริงแล้ว ไม่ต้องนับถอยหลังเข้า sleep ต่อ
     setErrorMessage(null);
     setConnectionStateSafe("connecting");
     setTranscript("");
@@ -788,10 +817,20 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       wasSpeechRef.current = false;
       silentStreakRef.current = 0;
       listeningSilentStreakRef.current = 0;
+      armSleepTimer(); // กลับมา "ไม่มีใครใช้งาน" จริงแล้ว เริ่มนับถอยหลังเข้า sleep ใหม่ (ดู armSleepTimer)
     };
-  }, [isBotSpeaking, resetIdleTimer, disconnect, setCatStateSafe, setConnectionStateSafe, debugEnabled]);
+  }, [armSleepTimer, isBotSpeaking, resetIdleTimer, disconnect, setCatStateSafe, setConnectionStateSafe, debugEnabled]);
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
+
+  // เริ่มนับถอยหลังเข้า sleep ตั้งแต่เปิดแอปครั้งแรก (ยังไม่เคยมีใครคุยเลยก็ต้องนับเหมือนกัน) —
+  // ต้อง clear sleepTimerRef ตอน unmount ด้วย ไม่งั้น timer ยิง setState หลัง component หายไปแล้ว
+  useEffect(() => {
+    armSleepTimer();
+    return () => {
+      if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
+    };
+  }, [armSleepTimer]);
 
   return {
     connectionState,
