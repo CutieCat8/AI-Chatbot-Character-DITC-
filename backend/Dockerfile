@@ -5,13 +5,16 @@ FROM python:3.13-slim
 
 # ตั้งค่าพื้นฐาน: ไม่สร้าง .pyc, log ออกทันที (ไม่ buffer)
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHAINLP_OFFLINE=1 \
+    PYTHAINLP_DATA_DIR=/tmp/pythainlp-data
 
 WORKDIR /app
 
 # ติดตั้ง dependency ก่อน copy โค้ด (ใช้ layer cache ได้ดีกว่า)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN mkdir -p /tmp/pythainlp-data \
+    && pip install --no-cache-dir -r requirements.txt
 
 # copy โค้ดทั้งหมด
 COPY . .

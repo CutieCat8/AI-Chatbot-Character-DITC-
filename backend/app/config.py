@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     VOICE_MIC_DEVICE: str = ""
     VOICE_SPEAKER_DEVICE: str = ""
 
+    # ---- Optional Thai G2P viseme timeline experiment ----
+    THAI_G2P_ENABLED: bool = False
+    THAI_G2P_TIMEOUT_MS: int = 100
+    PYTHAINLP_DATA_DIR: str = "/tmp/pythainlp-data"
+
     # ---- Scraper (T03) ----
     # เว็บ CAMT เป็น server-rendered (WordPress) → ดึงด้วย HTML scraper ได้ตรง ๆ
     # ใช้ www. เพราะ apex domain (camt.cmu.ac.th) ใบรับรอง SSL ไม่ตรงชื่อโฮสต์

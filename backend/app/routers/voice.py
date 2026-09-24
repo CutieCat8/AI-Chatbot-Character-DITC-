@@ -27,7 +27,13 @@ from app.models.enums import SessionEndReason, Speaker
 from app.rag.embedding import get_embedder
 from app.rag.retrieval import keyword_search, normalize_query, search
 from app.services.session_tracker import SessionTracker
-from app.services.viseme_timeline import TimedWord, build_viseme_timeline, build_word_aligned_viseme_timeline
+from app.services.thai_g2p import contains_thai, get_thai_g2p_provider, phonemize_thai_spans
+from app.services.viseme_timeline import (
+    TimedWord,
+    build_viseme_timeline,
+    build_word_aligned_viseme_timeline,
+    summarize_viseme_timeline,
+)
 
 logger = logging.getLogger("routers.voice")
 
@@ -183,6 +189,11 @@ def run_retrieval(query: str) -> str:
 @router.websocket("/ws")
 async def voice_ws(websocket: WebSocket) -> None:
     await websocket.accept()
+    query_params = getattr(websocket, "query_params", {})
+    debug_enabled = (
+        settings.APP_ENV.lower() != "production"
+        and query_params.get("debug") == "1"
+    )
 
     if not settings.GEMINI_API_KEY:
         await websocket.close(code=1011, reason="ไม่มี GEMINI_API_KEY ใน .env")
@@ -300,23 +311,40 @@ async def voice_ws(websocket: WebSocket) -> None:
                 return
             timeline_revision += 1
             last_timeline_duration_ms = duration_ms
+            thai_g2p = get_thai_g2p_provider()
             timeline = (
-                build_word_aligned_viseme_timeline(turn_words, duration_ms)
+                build_word_aligned_viseme_timeline(turn_words, duration_ms, thai_g2p)
                 if turn_words
-                else build_viseme_timeline(turn_transcript, duration_ms)
+                else build_viseme_timeline(turn_transcript, duration_ms, thai_g2p)
             )
-            await websocket.send_json(
-                {
-                    "type": "viseme_timeline",
-                    "timeline": timeline,
-                    "durationMs": duration_ms,
-                    "text": turn_transcript,
-                    "revision": timeline_revision,
-                    "final": final,
-                    "source": "word_timestamps" if turn_words else "text_fallback",
-                    "turnId": turn_id,
+            has_thai = contains_thai(turn_transcript)
+            has_g2p_pose = any(cue.get("pose") not in {None, "sil"} for cue in timeline)
+            if has_thai and has_g2p_pose:
+                viseme_source = "thai-g2p"
+            elif has_thai:
+                viseme_source = "text-driven-fallback"
+            else:
+                viseme_source = "english-text-driven"
+            alignment_source = "word-timestamps" if turn_words else "pcm-duration"
+            payload: dict[str, object] = {
+                "type": "viseme_timeline",
+                "timeline": timeline,
+                "durationMs": duration_ms,
+                "text": turn_transcript,
+                "revision": timeline_revision,
+                "final": final,
+                "source": viseme_source,
+                "alignment": alignment_source,
+                "turnId": turn_id,
+            }
+            if debug_enabled:
+                payload["debug"] = {
+                    "ipa": phonemize_thai_spans(turn_transcript, thai_g2p),
+                    "metrics": summarize_viseme_timeline(timeline),
                 }
-            )
+                if final:
+                    logger.info("[viseme_ab_debug] %s", json.dumps(payload, ensure_ascii=False))
+            await websocket.send_json(payload)
 
         while True:
             async for response in session.receive():
