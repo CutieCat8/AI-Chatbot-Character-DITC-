@@ -179,6 +179,22 @@
     (ห้ามอ้างว่าทดสอบแล้วตามกติกาข้อ 1) ต้องลองพูดคำปลุก คุยจบด้วยคำลา ปล่อยเงียบเกิน 15 วิ และปล่อยให้
     retrieval ช้า ๆ ดูว่า session ไม่ถูกตัดกลางคัน ก่อนเชื่อว่าใช้งานได้จริง
 
+  **แก้ target state ของ teardown จาก "sleep" เป็น "idle" (2026-09-24):** เดิม `disconnect({toState:
+  "sleep"})` ทั้ง silence-timeout path และ conversation_end path ทำให้แมวหลับตาทุกครั้งที่บทสนทนาจบ —
+  เจ้าของงานชี้ว่าดูเหมือนเครื่องปิด/พัง คนถัดไปไม่กล้าเข้ามาใช้ เปลี่ยนทั้งสองจุดเป็น `toState: "idle"`
+  แทน (flow ที่ถูกต้อง: Idle → wake word → Transition → Wake (คุย) → จบ → Transition → **Idle** ไม่ใช่
+  Sleep) แก้ที่ `useVoiceSocket.ts`: `resetIdleTimer()` (silence timeout) และจุดเรียก `disconnect()` ใน
+  `tick()` ตอน `pendingConversationEndRef` เป็นจริง (farewell) ทั้งคู่เปลี่ยนเป็น `{toState: "idle"}`
+  ปรับ guard ใน `resetIdleTimer()` จากเช็ค `catStateRef.current !== "sleep"` เป็น
+  `connectionStateRef.current !== "closed"` แทน (เช็คด้วย catState ไม่ได้อีกต่อไปเพราะ "idle" เป็นค่า
+  ปกติระหว่างเชื่อมต่ออยู่ด้วย — รอผู้ใช้พูด — เช็คแบบเดิมจะ skip ทุกครั้งที่ควร teardown จริง)
+  wake-word re-arm ไม่กระทบ — เงื่อนไข `enabled` ใน App.tsx เช็ค catState "idle" อยู่แล้ว (เดิมเช็ค
+  idle/sleep คู่กัน "idle" ครอบคลุมอยู่แล้วทั้งก่อนและหลังแก้)
+  **Sleep state ยังต้องมีอยู่ตาม TOR (backlog แยก ยังไม่ได้ทำ):** ต้องผูกกับ inactivity timer แยกต่างหาก
+  ระยะยาวกว่ามาก (เช่น 5-10 นาทีที่ idle แล้วไม่มีใครพูดปลุกเลย) ไม่ใช่ทุกครั้งที่บทสนทนาจบแบบเดิม —
+  ยังไม่ได้ implement ตอนนี้
+  typecheck + vitest (33/33) ผ่านหลังแก้ **ยังไม่เคยทดสอบด้วยไมค์จริง/อุปกรณ์จริง**
+
 ## ข้อกำหนดที่ห้ามละเมิด
 
 - **รองรับสองภาษา ไทยและอังกฤษ ตรวจจับอัตโนมัติ**

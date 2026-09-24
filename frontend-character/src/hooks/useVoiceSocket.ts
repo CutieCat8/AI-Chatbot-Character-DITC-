@@ -292,11 +292,14 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   }, []);
 
   /**
-   * `toState`: "idle" (default, ปุ่ม "หยุดคุย" กดเอง) หรือ "sleep" (session-idle-sleep — silence
-   * timeout จริงหรือ flag_conversation_end จบบทสนทนาแล้ว) — ต้องเป็น "sleep" เท่านั้นถึงจะ re-arm
-   * wake-word ได้ถูกความหมาย (ดูเงื่อนไข `enabled` ของ useWakeWord ใน App.tsx: เช็คทั้ง connectionState
-   * idle/closed และ catState idle/sleep คู่กัน — ทั้งสอง state ทำให้ enabled จริงเหมือนกัน แค่สื่อความ
-   * หมายต่างกันให้ผู้ใช้เห็นหน้าแมว: "idle" แปลว่าผู้ใช้เองสั่งหยุด ส่วน "sleep" แปลว่าระบบเงียบไปเอง)
+   * `toState`: ปัจจุบันใช้แค่ "idle" เสมอไม่ว่าจะจบบทสนทนาทางไหน (ปุ่ม "หยุดคุย", silence timeout,
+   * หรือ flag_conversation_end) — เจ้าของงานตัดสินใจ (2026-09-24) ว่าหน้าแมวหลับตาหลังจบบทสนทนาทุกครั้ง
+   * ทำให้ดูเหมือนเครื่องปิด/พัง คนถัดไปไม่กล้าเข้ามาใช้ ต้องกลับไป "idle" (ตาตื่น) เหมือนสถานะก่อนเริ่ม
+   * บทสนทนาแทน (flow: Idle → wake word → Wake (คุย) → จบ → กลับ Idle ไม่ใช่ Sleep) "sleep" ยังคงมีอยู่
+   * ใน CatState ตาม TOR แต่จะผูกกับ inactivity timer แยกต่างหาก (ระยะยาวกว่ามาก ไม่มีใครปลุกเลย) ซึ่ง
+   * ยังไม่ได้ทำ — เก็บเป็น backlog แยก (ดู CLAUDE.md) `toState` ยังเปิดไว้ให้ override ได้เผื่ออนาคต แต่
+   * ตอนนี้ทุกจุดเรียกส่ง "idle" เหมือนกันหมด — wake-word re-arm ยังทำงานถูกอยู่เพราะเงื่อนไข `enabled`
+   * ของ useWakeWord ใน App.tsx เช็ค catState "idle" อยู่แล้ว (เดิมเช็ค idle/sleep คู่กัน)
    */
   const disconnect = useCallback((options?: { toState?: CatState }) => {
     // เช็คก่อนว่าเคย connect จริงไหม — กัน React StrictMode (dev mode double-invoke effect)
@@ -331,13 +334,15 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
       // เงียบจริงครบ IDLE_TO_SLEEP_MS วิ (ไม่มีทั้งเสียงผู้ใช้/แมว/isThinking เลย — resetIdleTimer()
-      // ถูกเรียกซ้ำระหว่างทั้งสามสถานะนั้นอยู่แล้ว ดูจุดเรียกทั้งหมด) เดิมแค่เปลี่ยน catState เป็น
-      // "sleep" แบบ cosmetic (ไมค์/WS ยังเปิดต่อ ตอบสนองทันทีไม่ต้องพูดคำปลุกใหม่เลย — บั๊กที่มาแก้
-      // รอบนี้ feat/session-idle-sleep) ตอนนี้ต้องตัด mic/WS จริงด้วยถึงจะ re-arm wake-word ได้ถูก
-      // ความหมาย เรียก disconnect() ตัวเต็มแทน setCatStateSafe("sleep") เฉยๆ
-      if (catStateRef.current !== "sleep") {
+      // ถูกเรียกซ้ำระหว่างทั้งสามสถานะนั้นอยู่แล้ว ดูจุดเรียกทั้งหมด) ต้องตัด mic/WS จริงถึงจะ re-arm
+      // wake-word ได้ถูกความหมาย เรียก disconnect() ตัวเต็ม — toState เป็น "idle" เสมอ (เปลี่ยนจาก
+      // "sleep" เดิม 2026-09-24 ดู docblock ของ disconnect ด้านบน) เช็คด้วย connectionState แทน
+      // catState เพราะ "idle" เป็นค่าปกติระหว่างเชื่อมต่ออยู่ด้วย (รอผู้ใช้พูด) เช็ค catState ตรงๆ
+      // จะ skip ทุกครั้งที่ควรจะ teardown จริง — เช็ค connectionState "closed" กันแค่ยิงซ้ำถ้า disconnect
+      // ทางอื่นทำไปแล้วก่อนหน้า (เช่น conversation_end path) เท่านั้น
+      if (connectionStateRef.current !== "closed") {
         logWake("idle_timeout_teardown");
-        disconnect({ toState: "sleep" });
+        disconnect({ toState: "idle" });
       }
     }, IDLE_TO_SLEEP_MS);
   }, [disconnect]);
@@ -496,8 +501,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
             // flag_conversation_end เองจริง (ดู ws.onmessage: "conversation_end") จบบทสนทนาเด็ดขาด
             // ไม่รองรับ barge-in ระหว่างกำลังจะปิด (ตัดสินใจร่วมกับเจ้าของงาน 2026-09-22 — ปิดเด็ดขาด
             // ต้องพูดคำปลุกใหม่ถึงจะเริ่มคุยได้อีก ไม่ใช่แค่พูดแทรก) ตัด mic/WS จริง ไม่ใช่แค่ transition
+            // toState "idle" ไม่ใช่ "sleep" (เปลี่ยน 2026-09-24) — จบบทสนทนาแล้วต้องกลับไปหน้าตาตื่น
+            // เชิญชวนคนถัดไป ไม่ใช่หน้าหลับที่ดูเหมือนเครื่องปิด/พัง (ดู docblock ของ disconnect ด้านบน)
             logWake("conversation_end_teardown");
-            disconnect({ toState: "sleep" });
+            disconnect({ toState: "idle" });
           } else {
             setCatStateSafe("transition");
             setOffTopic(false); // จบเทิร์นแล้วจริง ๆ (แมวพูดจบแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
@@ -766,7 +773,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       // ไปยัง session/การเชื่อมต่อครั้งถัดไป (คนถัดไปกดเริ่มคุยมาเจอแมวโกรธใส่ทันที แย่กว่าบั๊กเดิม)
       // เคลียร์กลับ idle ให้ครบเหมือนตอน disconnect() ปกติ — ต้อง clear idleTimerRef ด้วย ไม่งั้น
       // ถ้ามี timer ค้างจากก่อนหน้า (ตั้งไว้จาก resetIdleTimer() รอบล่าสุดตอนยังเชื่อมต่ออยู่) มันจะ
-      // ยิง setCatStateSafe("sleep") ทับ idle ที่เพิ่ง set ไปหลังจากนี้อีกที (เจอจริงตอนทดสอบ)
+      // ยิง disconnect() ซ้ำทับสถานะที่เพิ่ง set ไปหลังจากนี้อีกที (เจอจริงตอนทดสอบ)
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       setCatStateSafe("idle");
       setBotSpeaking(false);
