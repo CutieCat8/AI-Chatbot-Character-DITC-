@@ -38,6 +38,8 @@ services:
     environment:
       # ใน docker network ให้ backend คุย db ผ่าน service name "db"
       POSTGRES_HOST: db
+      # A/B test override from the developer shell; default remains the legacy fallback.
+      THAI_G2P_ENABLED: ${THAI_G2P_ENABLED:-false}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:

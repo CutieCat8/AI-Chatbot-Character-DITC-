@@ -9,7 +9,9 @@ uses amplitude to choose a mouth shape.
 from __future__ import annotations
 
 import re
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
+
+from app.services.thai_g2p import ExtendedPose, ThaiG2PProvider, parse_ipa
 
 CatViseme = Literal["idle", "smile", "aa", "ee", "oh", "mbp", "fv", "s", "r", "wo"]
 
@@ -19,6 +21,7 @@ class VisemeCue(TypedDict):
     endMs: int
     viseme: CatViseme
     text: str
+    pose: NotRequired[ExtendedPose]
 
 
 class TimedWord(TypedDict):
@@ -116,10 +119,44 @@ def _weighted_cues(text: str) -> list[tuple[CatViseme, int, str]]:
     return cues or [("r", 120, text)]
 
 
+def _g2p_weighted_cues(
+    text: str,
+    provider: ThaiG2PProvider | None,
+) -> list[tuple[CatViseme, int, str, ExtendedPose | None]]:
+    """Use Thai IPA only for Thai spans; preserve the established English path."""
+    output: list[tuple[CatViseme, int, str, ExtendedPose | None]] = []
+    for token in _TOKEN_RE.findall(text):
+        if re.fullmatch(r"[.,!?;:]+", token):
+            output.append(("idle", 70, token, "sil"))
+            continue
+        if _language(token) == "en":
+            output.extend((*cue, None) for cue in _weighted_cues(token))
+            continue
+        ipa = provider.convert(token) if provider is not None else None
+        phones = parse_ipa(ipa) if ipa else []
+        if not phones:
+            output.extend((*cue, None) for cue in _weighted_cues(token))
+            continue
+        for phone in phones:
+            if phone.is_vowel:
+                weight = 190 if phone.is_long else 145
+            elif phone.pose in {"PP", "FF"}:
+                weight = 55
+            else:
+                weight = 60
+            output.append((phone.viseme, weight, phone.symbol, phone.pose))
+    return output or [("r", 120, text, None)]
+
+
 def _merge_adjacent(cues: list[VisemeCue]) -> list[VisemeCue]:
     merged: list[VisemeCue] = []
     for cue in cues:
-        if merged and merged[-1]["viseme"] == cue["viseme"] and merged[-1]["endMs"] == cue["startMs"]:
+        if (
+            merged
+            and merged[-1]["viseme"] == cue["viseme"]
+            and merged[-1].get("pose") == cue.get("pose")
+            and merged[-1]["endMs"] == cue["startMs"]
+        ):
             merged[-1]["endMs"] = cue["endMs"]
             merged[-1]["text"] += cue["text"]
         else:
@@ -127,27 +164,38 @@ def _merge_adjacent(cues: list[VisemeCue]) -> list[VisemeCue]:
     return merged
 
 
-def build_viseme_timeline(text: str, duration_ms: int) -> list[VisemeCue]:
+def build_viseme_timeline(
+    text: str,
+    duration_ms: int,
+    thai_g2p_provider: ThaiG2PProvider | None = None,
+) -> list[VisemeCue]:
     """Build sequential cues scaled to real received PCM duration."""
-    weighted = _weighted_cues(text.strip())
+    weighted = _g2p_weighted_cues(text.strip(), thai_g2p_provider)
     if not weighted or duration_ms <= 0:
         return []
 
-    total_weight = sum(weight for _, weight, _ in weighted)
+    total_weight = sum(weight for _, weight, _, _ in weighted)
     cursor = 0
     cues: list[VisemeCue] = []
-    for index, (viseme, weight, source_text) in enumerate(weighted):
+    for index, (viseme, weight, source_text, pose) in enumerate(weighted):
         end = duration_ms if index == len(weighted) - 1 else round(cursor + duration_ms * weight / total_weight)
         if end - cursor < 35 and cues:
             cues[-1]["endMs"] = end
             cues[-1]["text"] += source_text
         else:
-            cues.append({"startMs": cursor, "endMs": end, "viseme": viseme, "text": source_text})
+            cue: VisemeCue = {"startMs": cursor, "endMs": end, "viseme": viseme, "text": source_text}
+            if pose is not None:
+                cue["pose"] = pose
+            cues.append(cue)
         cursor = end
     return _merge_adjacent(cues)
 
 
-def build_word_aligned_viseme_timeline(words: list[TimedWord], duration_ms: int) -> list[VisemeCue]:
+def build_word_aligned_viseme_timeline(
+    words: list[TimedWord],
+    duration_ms: int,
+    thai_g2p_provider: ThaiG2PProvider | None = None,
+) -> list[VisemeCue]:
     """Use provider word boundaries, distributing text-driven cues only inside each word."""
     output: list[VisemeCue] = []
     cursor = 0
@@ -158,7 +206,7 @@ def build_word_aligned_viseme_timeline(words: list[TimedWord], duration_ms: int)
             output.append({"startMs": cursor, "endMs": start, "viseme": "idle", "text": ""})
         if end <= start:
             continue
-        for cue in build_viseme_timeline(item["word"], end - start):
+        for cue in build_viseme_timeline(item["word"], end - start, thai_g2p_provider):
             output.append(
                 {
                     **cue,
@@ -170,3 +218,23 @@ def build_word_aligned_viseme_timeline(words: list[TimedWord], duration_ms: int)
     if cursor < duration_ms:
         output.append({"startMs": cursor, "endMs": duration_ms, "viseme": "idle", "text": ""})
     return _merge_adjacent(output)
+
+def summarize_viseme_timeline(cues: list[VisemeCue]) -> dict[str, object]:
+    """Stable A/B metrics for development telemetry; idle is excluded from ratios."""
+    if not cues:
+        return {"cueChangesPerSecond": 0.0, "visemeRatios": {}, "durationMs": 0}
+    duration_ms = max(cue["endMs"] for cue in cues)
+    speech = [cue for cue in cues if cue["viseme"] != "idle"]
+    speech_ms = sum(cue["endMs"] - cue["startMs"] for cue in speech)
+    durations: dict[str, int] = {}
+    for cue in speech:
+        durations[cue["viseme"]] = durations.get(cue["viseme"], 0) + cue["endMs"] - cue["startMs"]
+    changes = sum(a["viseme"] != b["viseme"] for a, b in zip(speech, speech[1:]))
+    return {
+        "cueChangesPerSecond": round(changes / max(duration_ms / 1000, 0.001), 3),
+        "visemeRatios": {
+            viseme: round(value / max(speech_ms, 1), 4)
+            for viseme, value in sorted(durations.items())
+        },
+        "durationMs": duration_ms,
+    }

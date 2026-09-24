@@ -18,6 +18,7 @@ from app.config import settings
 from app.database import engine
 from app.rag.embedding import get_embedder
 from app.routers import auth, chat, documents, stats, voice
+from app.services.thai_g2p import warm_up_thai_g2p_provider
 
 # เจอบั๊กจริง (2026-09-14): ไม่เคยเรียก logging.basicConfig() เลยสักที่ในทั้งโปรเจกต์ — root logger
 # เลยอยู่ที่ระดับ default (WARNING) ทุก logger.info(...) ที่เขียนไว้ทั้งแอป (รวม [greet_diag]/
@@ -63,6 +64,8 @@ def _check_embedding_dim_matches_db() -> None:
 async def lifespan(app: FastAPI):
     # โค้ดตรงนี้รันตอน start ของแอป — เช็ค embedding dim ก่อนอย่างอื่น (fail เร็ว ดีกว่า fail ตอนมีคนถาม)
     _check_embedding_dim_matches_db()
+    # Optional and fail-open: keep the existing text-driven timeline on failure.
+    warm_up_thai_g2p_provider()
     yield
     # โค้ดตรงนี้รันตอนปิดแอป
     engine.dispose()
