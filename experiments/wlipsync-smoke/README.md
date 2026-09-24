@@ -1,5 +1,12 @@
 # wLipSync 1.3.1 isolated smoke test
 
+> [!WARNING]
+> Archived research experiment — not used in production.
+> `wlipsync@1.3.1` was rejected after confirming an MFCC/profile-entry loop bug.
+> The production lip-sync path uses the optional FastThaiG2P viseme timeline.
+
+The code in this directory exists only to reproduce and document the research result. Do not import it into, depend on it from, or connect it to the production frontend, backend, audio graph, or dependency tree.
+
 This harness is isolated from both production frontends. It does not import or modify DITC CAT code and does not test phoneme accuracy.
 
 It checks the official JSON/binary sample profiles plus in-memory profiles with 8, 12, and 16 entries. Generated profiles deliberately use one label for every two acoustic entries to verify duplicate-label output behavior.

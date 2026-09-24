@@ -1,5 +1,12 @@
 # wLipSync 1.3.1 isolated smoke-test report
 
+> [!WARNING]
+> Archived research experiment — not used in production.
+> `wlipsync@1.3.1` was rejected after confirming an MFCC/profile-entry loop bug.
+> The production lip-sync path uses the optional FastThaiG2P viseme timeline.
+
+The code in this directory exists only to reproduce and document the research result. Do not import it into, depend on it from, or connect it to the production frontend, backend, audio graph, or dependency tree.
+
 Date: 2026-09-24
 
 Branch: `experiment/lipsync-engine`
