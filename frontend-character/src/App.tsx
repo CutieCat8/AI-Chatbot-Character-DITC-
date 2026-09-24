@@ -113,7 +113,7 @@ export function App() {
   const liveGaze = useGazeLoop({ enabled: liveFaceState === "idle" });
 
   const faceState = mode === "figma-preview" ? figma.state : liveFaceState;
-  const activeAmplitude = mode === "figma-preview" ? 0 : voice.amplitude;
+  const activeViseme = mode === "figma-preview" ? "idle" : voice.currentViseme;
   const activeBlink = mode === "figma-preview" ? figma.blink : liveBlink;
   const activeGaze = mode === "figma-preview" ? figma.gaze : liveGaze;
 
@@ -122,7 +122,7 @@ export function App() {
       {/* จอจริงต้องเป็นหน้าแมวเต็มจอเสมอ (2026-09-10 — ดู CLAUDE.md) เต็มทุกโหมด ไม่ใช่แค่ live-voice
           ปุ่ม/แผงควบคุมทั้งหมดที่เคยเรียงข้าง ๆ ย้ายไปอยู่ใน HamburgerMenu มุมขวาบนแทน */}
       <div className="app-stage">
-        <CatFace state={faceState} amplitude={activeAmplitude} gaze={activeGaze} blink={activeBlink} />
+        <CatFace state={faceState} viseme={activeViseme} language="auto" gaze={activeGaze} blink={activeBlink} />
       </div>
 
       <HamburgerMenu>

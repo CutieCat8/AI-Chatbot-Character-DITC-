@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import type { CatSpeechLanguage, CatViseme } from "../../lib/catVisemes";
+import { CatMouth } from "./CatMouth";
 
 /**
  * DITC CAT — face renderer (แปลงจาก CatFace.jsx ที่ผู้ใช้เอามาจาก Figma export ของ claude.ai)
@@ -199,13 +201,8 @@ interface CatFaceProps {
   /** ตำแหน่งรูม่านตา [x, y] มีผลเฉพาะตอน state ที่ตาเป็นแบบ gaze (listening) */
   gaze?: readonly [number, number];
   blink?: boolean;
-  /**
-   * 0-1 จาก amplitude เสียงตอบ — ต้นฉบับ Figma export ยังไม่มี prop นี้ (มีแค่ mouth ทรงเดียว "ω")
-   * เพิ่มเข้ามาเพื่อให้ปากขยับตามเสียงตอนพูดจริง (ฟีเจอร์ lip-flap เดิมที่คอมโพเนนต์แมวตัวก่อน
-   * — CatCharacter.tsx — มีอยู่แล้ว ก่อนจะถูกลบทิ้งตอนย้ายมาใช้ CatFace ทั้งแอป 2026-09-07
-   * — ถ้าไม่ใส่ตัวนี้ตอนสลับไป "speaking" ปากจะหน้าตาเหมือน "idle" เป๊ะ ไม่ขยับเลย)
-   */
-  amplitude?: number;
+  viseme?: CatViseme;
+  language?: CatSpeechLanguage;
   className?: string;
 }
 
@@ -213,13 +210,12 @@ export default function CatFace({
   state = "idle",
   gaze = [0, 0],
   blink = false,
-  amplitude = 0,
+  viseme = "idle",
+  language = "auto",
   className = "",
 }: CatFaceProps) {
   const cfg = STATES[state] ?? STATES.idle;
   const showPupils = cfg.eyes === "gaze";
-  // ปากอ้าตาม amplitude เฉพาะตอน speaking (ตอนอื่นทรงปากคุมด้วย state ล้วน ๆ ตามดีไซน์เดิม)
-  const mouthOpenBlend = state === "speaking" ? Math.min(1, Math.max(0, amplitude)) : 0;
 
   // หูสลับ folded/normal ทุก 1 วิ ตลอดที่ยังอยู่ใน "listening" (วนจนกว่า state จะเปลี่ยน เช่น
   // ผู้ใช้พูดจบแล้ว) — fade ข้ามกลุ่ม (opacity) 220ms ให้ดูเหมือนค่อย ๆ พับแทนการสลับทันที ยังเป็น
@@ -290,10 +286,16 @@ export default function CatFace({
       </g>
       {WHISKERS}
 
-      {/* ปากปกติของ state ปัจจุบัน + ปากอ้า (open) ซ้อนไขว้กันด้วย opacity ไล่ตาม amplitude ตอน
-          speaking เท่านั้น — state อื่นแสดงแค่ทรงปากของตัวเองเหมือนเดิมทุกประการ */}
-      <g style={{ opacity: 1 - mouthOpenBlend }}>{MOUTH[cfg.mouth]}</g>
-      {mouthOpenBlend > 0 && <g style={{ opacity: mouthOpenBlend }}>{MOUTH.open}</g>}
+      {/* Angry keeps its established expression. Other states use the aligned Figma mouth canvas. */}
+      {state === "angry" ? (
+        MOUTH.frown
+      ) : (
+        <CatMouth
+          viseme={state === "waking" ? "smile" : viseme}
+          isSpeaking={state === "speaking"}
+          language={language}
+        />
+      )}
 
       {cfg.zzz && ZZZ}
       {cfg.anger && ANGER_MARK}

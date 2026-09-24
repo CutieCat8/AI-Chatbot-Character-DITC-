@@ -150,6 +150,59 @@
   ส่วนปัญหาคำลงท้าย "จ่ะ/จ๊ะ/จ้า" บางทีไม่ขึ้นใน transcript เลย เป็นข้อจำกัดของ Web Speech API เอง
   (STT accuracy ของ engine) ไม่ใช่บั๊กแอป — ไม่มีทางแก้ที่ layer นี้
 
+  **Session-idle-sleep — เขียนแล้ว ยังไม่เคยทดสอบกับอุปกรณ์จริง (2026-09-22, branch
+  `feat/session-idle-sleep`):** บั๊กเดิม: `BACKEND_SESSION_SILENCE_TIMEOUT_S`/`IDLE_TO_SLEEP_MS` ปิด
+  session แค่ในเชิงนับ (analytics) หรือ cosmetic catState เท่านั้น ไมค์/WS จริงยังเปิดต่อ ตอบสนองทันที
+  ไม่ต้องพูดคำปลุกใหม่ — ไม่ตรงพฤติกรรมที่ต้องการ แก้แล้วสองทาง:
+  - **Silence timeout (client-side ล้วน):** `resetIdleTimer()` ใน `useVoiceSocket.ts` เดิมแค่
+    `setCatStateSafe("sleep")` ตอนครบ `IDLE_TO_SLEEP_MS` เปลี่ยนเป็นเรียก `disconnect({toState:
+    "sleep"})` ตัวเต็ม (ตัด mic tracks + AudioContext + WS จริง) — ไม่ต้องแตะ backend เลยเพราะ client
+    รู้ "ความเงียบจริง" (ไม่มีทั้งเสียงผู้ใช้/แมว) อยู่แล้วจากจุดเรียก `resetIdleTimer()` ที่มีอยู่เดิม
+    เพิ่มจุดเรียกใหม่หนึ่งจุด: ตอนเข้า `isThinking` (รอ retrieval/LLM) ด้วย กัน timer ตัดสายกลางคันถ้า
+    ตอบช้ากว่า 15 วิ (ตัดสินใจร่วมกับเจ้าของงาน 2026-09-22 — เสี่ยงจริงต่ำแต่ผลกระทบแย่กว่าเดิมเพราะ
+    timer ทำ teardown จริงแล้วไม่ใช่แค่ cosmetic flip)
+  - **Farewell (`flag_conversation_end`):** backend ส่ง `{"type":"conversation_end"}` ทันทีที่ tool
+    call มาถึง (จุดเดียวกับ `tracker.flag_conversation_end()` ใน `routers/voice.py`) — ส่งแค่บน WS
+    ของเราเอง ไม่แตะ `send_client_content()`/`send_realtime_input()` ของ Gemini เลย จึงไม่เข้าเงื่อนไข
+    interleaving ที่ทำให้เกิด greet-first saga 6 รอบด้านบน frontend ตั้ง flag รอไว้ก่อน ตัดจริงที่จุด
+    เดียวกับที่ `tick()` ตัดสิน `wake -> transition -> idle` ปกติอยู่แล้ว (รอ `BOT_SPEECH_END_HANGOVER_MS`
+    ผ่านไปก่อน กันตัดเสียงลากลางประโยค)
+  - **Barge-in ระหว่างกำลังจะปิด (หลัง `flag_conversation_end`):** ตัดสินใจร่วมกับเจ้าของงาน —
+    **ปิดเด็ดขาด ไม่รองรับ cancel** ต้องพูดคำปลุกใหม่เท่านั้น (ไม่ใช่แค่พูดแทรก) เหตุผล: half-duplex ที่
+    มีอยู่แล้วบล็อกไม่ให้เสียงผู้ใช้ถูกส่งเข้า Gemini ระหว่างแมวพูดอยู่แล้วทั้งหมด ไม่มี barge-in จริงที่
+    ต้อง cancel ตั้งแต่แรก — เลือกทางง่าย ไม่เพิ่ม state machine ใหม่ ตรงกับที่เจ้าของงานกังวลเรื่องพื้นที่
+    เสี่ยงบั๊ก timing (ดู greet-first saga)
+  - wake-word re-arm หลัง teardown ไม่ต้องแก้อะไรเพิ่ม — เงื่อนไข `enabled` ของ `useWakeWord` ใน
+    `App.tsx` เช็ค `connectionState` idle/closed **และ** `catState` idle/sleep อยู่แล้วทั้งคู่ ผ่านทันที
+    ที่ `disconnect()` ทำงาน
+  - typecheck (`tsc -b`) + vitest (19/19) ผ่าน — **ยังไม่เคยทดสอบด้วยไมค์จริง/อุปกรณ์จริงเลยสักครั้ง**
+    (ห้ามอ้างว่าทดสอบแล้วตามกติกาข้อ 1) ต้องลองพูดคำปลุก คุยจบด้วยคำลา ปล่อยเงียบเกิน 15 วิ และปล่อยให้
+    retrieval ช้า ๆ ดูว่า session ไม่ถูกตัดกลางคัน ก่อนเชื่อว่าใช้งานได้จริง
+
+  **แก้ target state ของ teardown จาก "sleep" เป็น "idle" (2026-09-24):** เดิม `disconnect({toState:
+  "sleep"})` ทั้ง silence-timeout path และ conversation_end path ทำให้แมวหลับตาทุกครั้งที่บทสนทนาจบ —
+  เจ้าของงานชี้ว่าดูเหมือนเครื่องปิด/พัง คนถัดไปไม่กล้าเข้ามาใช้ เปลี่ยนทั้งสองจุดเป็น `toState: "idle"`
+  แทน (flow ที่ถูกต้อง: Idle → wake word → Transition → Wake (คุย) → จบ → Transition → **Idle** ไม่ใช่
+  Sleep) แก้ที่ `useVoiceSocket.ts`: `resetIdleTimer()` (silence timeout) และจุดเรียก `disconnect()` ใน
+  `tick()` ตอน `pendingConversationEndRef` เป็นจริง (farewell) ทั้งคู่เปลี่ยนเป็น `{toState: "idle"}`
+  ปรับ guard ใน `resetIdleTimer()` จากเช็ค `catStateRef.current !== "sleep"` เป็น
+  `connectionStateRef.current !== "closed"` แทน (เช็คด้วย catState ไม่ได้อีกต่อไปเพราะ "idle" เป็นค่า
+  ปกติระหว่างเชื่อมต่ออยู่ด้วย — รอผู้ใช้พูด — เช็คแบบเดิมจะ skip ทุกครั้งที่ควร teardown จริง)
+  wake-word re-arm ไม่กระทบ — เงื่อนไข `enabled` ใน App.tsx เช็ค catState "idle" อยู่แล้ว (เดิมเช็ค
+  idle/sleep คู่กัน "idle" ครอบคลุมอยู่แล้วทั้งก่อนและหลังแก้)
+  typecheck + vitest (33/33) ผ่านหลังแก้ **ยังไม่เคยทดสอบด้วยไมค์จริง/อุปกรณ์จริง**
+
+  **Sleep state จริง — implement แล้ว (2026-09-24, เจ้าของงานยืนยัน 5 นาที):** เพิ่ม `armSleepTimer()`
+  ใน `useVoiceSocket.ts` แยกจาก `resetIdleTimer()`/`IDLE_TO_SLEEP_MS` (15 วิ ตัดสายกลางบทสนทนา) โดย
+  เจตนา — `SLEEP_AFTER_INACTIVITY_MS = 5 * 60 * 1000` นับถอยหลังจากตอนที่กลับมา "ไม่มีใครใช้งานจริง"
+  (ท้าย `disconnect()`, `ws.onclose`, และตอน mount แอปครั้งแรก) ถ้าครบเวลาแล้ว catState ยังเป็น `"idle"`
+  และไม่ได้เชื่อมต่ออยู่ (`connectionState` ไม่ใช่ connecting/connected) ถึงเปลี่ยนเป็น `"sleep"` จริง —
+  `connect()` clear timer นี้ทันทีที่เริ่มเชื่อมต่อ (ไม่ว่าจะกดปุ่มหรือพูดคำปลุก) กันยิงทับระหว่างมีคนใช้
+  งานอยู่ CatFace render map เดิมรองรับ `sleep` อยู่แล้ว (`sleeping` — ตาหลับ+zzz) ไม่ต้องแก้เพิ่ม
+  wake-word ปลุกจาก sleep ได้ปกติ (เงื่อนไข `enabled` เช็ค catState idle/sleep คู่กันอยู่แล้ว)
+  **ยังไม่เคยทดสอบด้วยอุปกรณ์จริง** ต้องปล่อยตู้ทิ้งไว้ 5 นาทีไม่มีคนคุยดูว่าแมวหลับตาจริง แล้วลองปลุกด้วย
+  เสียงจากสถานะ sleep ว่ากลับมาคุยได้ปกติก่อนเชื่อว่าใช้งานได้จริง
+
 ## ข้อกำหนดที่ห้ามละเมิด
 
 - **รองรับสองภาษา ไทยและอังกฤษ ตรวจจับอัตโนมัติ**

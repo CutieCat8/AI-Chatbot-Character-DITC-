@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CatViseme } from "../lib/catVisemes";
+import { normalizeVisemeTimeline, type VisemeCue } from "../lib/visemeTimeline";
+import { useVisemeTimeline } from "./useVisemeTimeline";
 import { logWake } from "../lib/wakeLog";
 import type { CatState } from "../types";
 
@@ -34,7 +37,12 @@ const BOT_SPEECH_END_HANGOVER_MS = 700;
 // เดียวกับ BOT_SPEECH_END_HANGOVER_MS ตรงๆ (ปรากฏการณ์เดียวกัน มีหลักฐานรองรับค่าเดียวกันอยู่แล้ว ไม่
 // ต้องคิดค่าใหม่) — ดู onaudioprocess ที่ใช้จริง
 const MIC_MUTE_HANGOVER_MS = BOT_SPEECH_END_HANGOVER_MS;
-const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ถึงเข้าสถานะ Sleep (mirror แนวคิด VAD_SILENCE_TIMEOUT_S)
+const IDLE_TO_SLEEP_MS = 15000; // เงียบนานเท่าไหร่ระหว่างบทสนทนาถึงตัดสาย (silence timeout) — ไม่ใช่ real Sleep (ดู SLEEP_AFTER_INACTIVITY_MS)
+// ไม่มีใครมาปลุกเลยนานแค่ไหน (นับตั้งแต่กลับมา "ไม่มีใครใช้งาน" จริง ไม่ใช่ระหว่างบทสนทนา) ถึงเข้า
+// สถานะ Sleep จริงตาม TOR (เจ้าของงานยืนยัน 2026-09-24 — 5 นาที) ตั้งใจแยกจาก IDLE_TO_SLEEP_MS ข้างบน
+// เพราะคนละจุดประสงค์: ตัวนั้นสั้น กันสายค้างกลางบทสนทนา ส่วนนี้ยาวกว่ามาก กันคนเดินผ่านมาเจอแมวหลับ
+// ทั้งที่เพิ่งมีคนคุยจบไปเมื่อกี้ (ดู armSleepTimer ด้านล่าง)
+const SLEEP_AFTER_INACTIVITY_MS = 5 * 60 * 1000;
 
 // เล่นตอนตื่นด้วยคำปลุก (ดู App.tsx: useWakeWord's onDetected -> connect({ playGreeting: true }))
 // (2026-09-15) **แทนที่** กลไก greet-first เดิมทั้งหมด (เคยส่ง synthetic turn ผ่าน
@@ -110,6 +118,10 @@ interface UseVoiceSocketResult {
    */
   offTopic: boolean;
   amplitude: number;
+  currentViseme: CatViseme;
+  visemeTimeline: readonly VisemeCue[];
+  visemeProgress: number;
+  currentVisemeCue: VisemeCue | null;
   transcript: string;
   errorMessage: string | null;
   /** `playGreeting`: เล่นเสียงทักทายจากไฟล์ (`GREETING_AUDIO_URL`) ทันทีตอนเริ่ม connect — ใช้เฉพาะ
@@ -176,7 +188,7 @@ export function computeChunkSchedule(
   return { startTime, nextPlayTime: startTime + duration, hadGap };
 }
 
-export type ScheduledAudio = { startTime: number; endTime: number };
+export type ScheduledAudio = { startTime: number; endTime: number; source?: AudioBufferSourceNode };
 
 /** True only while an actual PCM chunk is playing, not during queued silence. */
 export function isScheduledAudioPlaying(scheduled: ScheduledAudio[], now: number): boolean {
@@ -189,9 +201,8 @@ export function isScheduledAudioPlaying(scheduled: ScheduledAudio[], now: number
  * React hook แล้วเพิ่ม 2 อย่างที่ voice_test.html ไม่มี:
  *   1. Half-duplex (ปิดไมค์ตอนแมวพูด) — เหตุผลเดียวกับที่ตัดสินใจไว้ใน voice_pipeline_dev.py:
  *      เครื่อง dev ไม่มี AEC ฮาร์ดแวร์ เสียงลำโพงจะหลุดเข้าไมค์แล้วสับสนกับเสียงพูดจริงได้
- *   2. amplitude สำหรับขับ lip-flap — วัดจาก "เสียงที่กำลังเล่นออกจริง" ผ่าน AnalyserNode ที่ต่อ
- *      อยู่ในเส้นทางเล่นเสียงจริง ไม่ใช่วัดตอนเพิ่งรับข้อมูลมาจาก WS (ซึ่งจะเพี้ยนไปหน้า jitter
- *      buffer ~1.5s ทำให้ปากขยับก่อนเสียงจริงจะดังก็ได้)
+ *   2. timeline สำหรับ lip-sync ใช้ transcript + ระยะ PCM จริง และอ้างอิงนาฬิกา AudioContext
+ *      ส่วน amplitude ใช้บอก activity/openness เท่านั้น ไม่เลือกชนิดรูปปาก
  */
 export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketResult {
   const debugEnabled = opts.debug ?? false;
@@ -208,6 +219,9 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const [amplitude, setAmplitude] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [visemeTimeline, setVisemeTimeline] = useState<VisemeCue[]>([]);
+  const [timelineAudioStartTime, setTimelineAudioStartTime] = useState<number | null>(null);
+  const [timelineAudioContext, setTimelineAudioContext] = useState<AudioContext | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -221,8 +235,11 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const scheduledAudioRef = useRef<ScheduledAudio[]>([]);
   const playbackBufferedMsRef = useRef(0);
   const playbackStartedRef = useRef(false);
+  const pendingTimelineOriginRef = useRef(false);
+  const activeVisemeTurnRef = useRef<number | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catStateRef = useRef<CatState>("idle"); // อ่านค่าล่าสุดใน callback ที่ไม่ได้ re-render ผูกด้วย
   const wasSpeechRef = useRef(false); // เดิม/จบพูดรอบล่าสุด — ใช้ส่ง speech_start/speech_end ให้ backend
   const silentStreakRef = useRef(0); // นับ buffer เงียบติดกัน ใช้ทำ hangover ก่อนส่ง speech_end จริง
@@ -236,10 +253,24 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   // ทิ้งไปก่อนจะมีโอกาสได้แสดงผลเลยด้วยซ้ำ — ต้องรู้ก่อนว่าแมว "เคยพูดจริงในเทิร์นนี้แล้ว" ถึงจะยอม
   // reset กลับ idle ได้
   const hasBotSpokenThisTurnRef = useRef(false);
+  // true ตั้งแต่ backend ส่ง {"type":"conversation_end"} มา (Gemini เรียก tool flag_conversation_end
+  // เอง — ตรวจจับเจตนาจบบทสนทนาจริงจากคำพูด เช่นคำลา ไม่ใช่การเดาจาก keyword) ยังไม่ตัด mic/WS ทันที
+  // ตรงนี้ — รอให้เสียงลาพูดจบจริงก่อน (เช็คใน tick() ที่จุดเดียวกับที่ตัดสิน wake->transition->idle
+  // ปกติอยู่แล้ว ใช้ hangover เดียวกับ BOT_SPEECH_END_HANGOVER_MS กันตัดเสียงกลางประโยคลา) ดู feat/
+  // session-idle-sleep — CLAUDE.md หัวข้อ "ฟีเจอร์ในสโคปที่ยังไม่ได้ทำ" เดิมมีบั๊กว่า silence timeout
+  // ฝั่ง backend (analytics-only) ปิด session แค่ในเชิงนับ ไม่แตะ mic/WS จริงเลย
+  const pendingConversationEndRef = useRef(false);
   // performance.now() ตอนแรกที่ tick() เห็น !isBotSpeaking() ระหว่างเทิร์นที่แมวเคยพูดแล้ว (สำหรับนับ
   // hangover ก่อนยอมรับว่าจบเทิร์นจริง — ดู BOT_SPEECH_END_HANGOVER_MS) null = ยังไม่เห็นช่องว่างเลย
   // หรือแมวกลับมาพูดต่อแล้วก่อนครบ hangover (reset กลับ null ทุกครั้งที่ speaking กลับมา true)
   const botSpeechEndSinceRef = useRef<number | null>(null);
+  const visemeFrame = useVisemeTimeline({
+    timeline: visemeTimeline,
+    audioStartTime: timelineAudioStartTime,
+    isPlaying: botSpeaking,
+    audioContext: timelineAudioContext,
+  });
+  const currentViseme = visemeFrame.currentViseme;
 
   const setCatStateSafe = useCallback((s: CatState) => {
     catStateRef.current = s;
@@ -257,13 +288,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     [],
   );
 
-  const resetIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => {
-      if (catStateRef.current !== "sleep") setCatStateSafe("sleep");
-    }, IDLE_TO_SLEEP_MS);
-  }, [setCatStateSafe]);
-
   /** แมวกำลังพูด/มีเสียงค้างเล่นอยู่ไหม (ใช้ตัดสินใจ half-duplex + สลับ state) */
   const isBotSpeaking = useCallback(() => {
     const ctx = audioCtxRef.current;
@@ -273,7 +297,38 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     return isScheduledAudioPlaying(scheduledAudioRef.current, now);
   }, []);
 
-  const disconnect = useCallback(() => {
+  /**
+   * ตั้งเวลานับถอยหลัง SLEEP_AFTER_INACTIVITY_MS (5 นาที) เข้าสถานะ Sleep จริง — แยกจาก
+   * resetIdleTimer/IDLE_TO_SLEEP_MS ที่คุมแค่ความเงียบระหว่างบทสนทนา (15 วิ, ตัดสาย) เรียกทุกครั้งที่
+   * กลับมา "ไม่มีใครใช้งาน" จริง (ท้าย disconnect() และ ws.onclose) และตอน mount ครั้งแรก เช็คซ้ำตอนหมด
+   * เวลาว่า catState ยังเป็น "idle" และไม่ได้เชื่อมต่ออยู่จริง (กันยิงทับกรณีมีคนเริ่มคุยพอดีก่อนครบเวลา
+   * แต่ timer เก่ายังไม่ทันโดน clear) — ฝั่ง connect() clear timer นี้ทันทีที่เริ่มเชื่อมต่อจริงอยู่แล้ว
+   */
+  const armSleepTimer = useCallback(() => {
+    if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
+    sleepTimerRef.current = setTimeout(() => {
+      if (
+        catStateRef.current === "idle" &&
+        connectionStateRef.current !== "connected" &&
+        connectionStateRef.current !== "connecting"
+      ) {
+        logWake("sleep_after_inactivity");
+        setCatStateSafe("sleep");
+      }
+    }, SLEEP_AFTER_INACTIVITY_MS);
+  }, [setCatStateSafe]);
+
+  /**
+   * `toState`: ปัจจุบันใช้แค่ "idle" เสมอไม่ว่าจะจบบทสนทนาทางไหน (ปุ่ม "หยุดคุย", silence timeout,
+   * หรือ flag_conversation_end) — เจ้าของงานตัดสินใจ (2026-09-24) ว่าหน้าแมวหลับตาหลังจบบทสนทนาทุกครั้ง
+   * ทำให้ดูเหมือนเครื่องปิด/พัง คนถัดไปไม่กล้าเข้ามาใช้ ต้องกลับไป "idle" (ตาตื่น) เหมือนสถานะก่อนเริ่ม
+   * บทสนทนาแทน (flow: Idle → wake word → Wake (คุย) → จบ → กลับ Idle ไม่ใช่ Sleep) "sleep" ยังคงมีอยู่
+   * ใน CatState ตาม TOR แต่ผูกกับ inactivity timer แยกต่างหาก (armSleepTimer ด้านบน — 5 นาทีไม่มีใคร
+   * ปลุกเลย ไม่ใช่ทุกครั้งที่บทสนทนาจบ) `toState` ยังเปิดไว้ให้ override ได้เผื่ออนาคต แต่ตอนนี้ทุกจุด
+   * เรียกส่ง "idle" เหมือนกันหมด — wake-word re-arm ยังทำงานถูกอยู่เพราะเงื่อนไข `enabled` ของ
+   * useWakeWord ใน App.tsx เช็ค catState idle/sleep คู่กัน (ทั้งสองค่าทำให้ enabled จริงเหมือนกัน)
+   */
+  const disconnect = useCallback((options?: { toState?: CatState }) => {
     // เช็คก่อนว่าเคย connect จริงไหม — กัน React StrictMode (dev mode double-invoke effect)
     // เรียก disconnect() ตอน mount ครั้งแรกทั้งที่ยังไม่เคยกด "เริ่มคุย" เลย ทำให้สถานะโชว์ผิดเป็น
     // "ปิดการเชื่อมต่อแล้ว" ทั้งที่ควรเป็น "ยังไม่เริ่ม"
@@ -287,14 +342,38 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     wsRef.current?.close();
     void audioCtxRef.current?.close();
     audioCtxRef.current = null;
+    setTimelineAudioContext(null);
+    setTimelineAudioStartTime(null);
+    setVisemeTimeline([]);
+    activeVisemeTurnRef.current = null;
+    pendingTimelineOriginRef.current = false;
     setConnectionStateSafe("closed");
-    setCatStateSafe("idle");
+    setCatStateSafe(options?.toState ?? "idle");
     setAmplitude(0);
     setBotSpeaking(false);
     setIsThinking(false);
     setOffTopic(false);
     setDebugVad(null);
-  }, [setCatStateSafe, setConnectionStateSafe]);
+    pendingConversationEndRef.current = false;
+    armSleepTimer();
+  }, [armSleepTimer, setCatStateSafe, setConnectionStateSafe]);
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      // เงียบจริงครบ IDLE_TO_SLEEP_MS วิ (ไม่มีทั้งเสียงผู้ใช้/แมว/isThinking เลย — resetIdleTimer()
+      // ถูกเรียกซ้ำระหว่างทั้งสามสถานะนั้นอยู่แล้ว ดูจุดเรียกทั้งหมด) ต้องตัด mic/WS จริงถึงจะ re-arm
+      // wake-word ได้ถูกความหมาย เรียก disconnect() ตัวเต็ม — toState เป็น "idle" เสมอ (เปลี่ยนจาก
+      // "sleep" เดิม 2026-09-24 ดู docblock ของ disconnect ด้านบน) เช็คด้วย connectionState แทน
+      // catState เพราะ "idle" เป็นค่าปกติระหว่างเชื่อมต่ออยู่ด้วย (รอผู้ใช้พูด) เช็ค catState ตรงๆ
+      // จะ skip ทุกครั้งที่ควรจะ teardown จริง — เช็ค connectionState "closed" กันแค่ยิงซ้ำถ้า disconnect
+      // ทางอื่นทำไปแล้วก่อนหน้า (เช่น conversation_end path) เท่านั้น
+      if (connectionStateRef.current !== "closed") {
+        logWake("idle_timeout_teardown");
+        disconnect({ toState: "idle" });
+      }
+    }, IDLE_TO_SLEEP_MS);
+  }, [disconnect]);
 
   const connect = useCallback(async (options?: { playGreeting?: boolean }) => {
     // กันเรียกซ้อนกัน — เช่น ปุ่ม "เริ่มคุย" กับ wake-word ยิงมาใกล้ๆ กันพอดี (state machine เต็มที่
@@ -305,6 +384,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       return;
     }
     logWake("connect_start", options?.playGreeting ? "playGreeting=true" : "playGreeting=false");
+    if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current); // มีคนเริ่มคุยจริงแล้ว ไม่ต้องนับถอยหลังเข้า sleep ต่อ
     setErrorMessage(null);
     setConnectionStateSafe("connecting");
     setTranscript("");
@@ -313,10 +393,16 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     listeningSilentStreakRef.current = 0;
     hasBotSpokenThisTurnRef.current = false;
     botSpeechEndSinceRef.current = null;
+    pendingConversationEndRef.current = false;
     setOffTopic(false);
 
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
+    setTimelineAudioContext(audioCtx);
+    setTimelineAudioStartTime(null);
+    setVisemeTimeline([]);
+    activeVisemeTurnRef.current = null;
+    pendingTimelineOriginRef.current = false;
     // มือถือ (Android Chrome รวมถึง Safari) เข้มงวดเรื่อง autoplay กว่า desktop บางรุ่น AudioContext
     // ที่สร้างใหม่อาจเริ่มที่ state "suspended" แม้จะสร้างระหว่าง user gesture (คลิกปุ่ม "เริ่มคุย")
     // ก็ตาม — resume() ตรงนี้ (ยังอยู่ในเส้นทางเดียวกับ gesture handler) ชัวร์กว่าปล่อยเดา
@@ -377,7 +463,11 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       );
       source.start(startTime);
       nextPlayTimeRef.current = nextPlayTime;
-      scheduledAudioRef.current.push({ startTime, endTime: startTime + buffer.duration });
+      scheduledAudioRef.current.push({ startTime, endTime: startTime + buffer.duration, source });
+      if (pendingTimelineOriginRef.current) {
+        pendingTimelineOriginRef.current = false;
+        setTimelineAudioStartTime(startTime);
+      }
     };
 
     const pendingQueue: ArrayBuffer[] = [];
@@ -434,12 +524,23 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         if (botSpeechEndSinceRef.current === null) {
           botSpeechEndSinceRef.current = performance.now();
         } else if (performance.now() - botSpeechEndSinceRef.current >= BOT_SPEECH_END_HANGOVER_MS) {
-          setCatStateSafe("transition");
-          setOffTopic(false); // จบเทิร์นแล้วจริง ๆ (แมวพูดจบแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
           botSpeechEndSinceRef.current = null;
-          setTimeout(() => {
-            if (catStateRef.current === "transition") setCatStateSafe("idle");
-          }, 400);
+          if (pendingConversationEndRef.current) {
+            // เสียงลาพูดจบจริงแล้ว (ผ่าน hangover เดียวกับที่กันตัดเสียงกลางคำอยู่แล้ว) — Gemini เรียก
+            // flag_conversation_end เองจริง (ดู ws.onmessage: "conversation_end") จบบทสนทนาเด็ดขาด
+            // ไม่รองรับ barge-in ระหว่างกำลังจะปิด (ตัดสินใจร่วมกับเจ้าของงาน 2026-09-22 — ปิดเด็ดขาด
+            // ต้องพูดคำปลุกใหม่ถึงจะเริ่มคุยได้อีก ไม่ใช่แค่พูดแทรก) ตัด mic/WS จริง ไม่ใช่แค่ transition
+            // toState "idle" ไม่ใช่ "sleep" (เปลี่ยน 2026-09-24) — จบบทสนทนาแล้วต้องกลับไปหน้าตาตื่น
+            // เชิญชวนคนถัดไป ไม่ใช่หน้าหลับที่ดูเหมือนเครื่องปิด/พัง (ดู docblock ของ disconnect ด้านบน)
+            logWake("conversation_end_teardown");
+            disconnect({ toState: "idle" });
+          } else {
+            setCatStateSafe("transition");
+            setOffTopic(false); // จบเทิร์นแล้วจริง ๆ (แมวพูดจบแล้ว) กันไม่ให้ค้างโกรธข้ามไปเทิร์นถัดไป
+            setTimeout(() => {
+              if (catStateRef.current === "transition") setCatStateSafe("idle");
+            }, 400);
+          }
         }
       }
       rafIdRef.current = requestAnimationFrame(tick);
@@ -604,6 +705,13 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
         listeningSilentStreakRef.current += 1;
         if (listeningSilentStreakRef.current >= listeningHangoverBuffers) {
           setIsThinking(true);
+          // เจ้าของงานยืนยัน (feat/session-idle-sleep): resetIdleTimer() เดิมเรียกแค่ตอนมีเสียง
+          // ผู้ใช้/แมวเข้า-ออกเท่านั้น ไม่ครอบช่วง "isThinking" (รอ retrieval/LLM ตอบ ไม่มีเสียงทั้งสอง
+          // ทาง) — ถ้า IDLE_TO_SLEEP_MS ยังทำแค่ cosmetic flip เหมือนเดิมไม่มีปัญหา แต่ตอนนี้ timer
+          // ตัด mic/WS จริงแล้ว (ดู resetIdleTimer ด้านบน) ถ้าตอบช้ากว่า 15 วิ (network/LLM แลค) จะโดน
+          // ตัดสายกลางคันโดยไม่มีใครพูดผิดอะไรเลย — เรียกซ้ำทุก buffer ที่ยัง thinking อยู่ (บล็อกนี้รัน
+          // ทุก ~85ms ระหว่าง thinking) กัน timer หมดอายุระหว่างรอคำตอบไปเลย
+          resetIdleTimer();
         }
       }
     };
@@ -618,9 +726,35 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     };
     ws.onmessage = (event) => {
       if (typeof event.data === "string") {
-        const msg = JSON.parse(event.data) as { type: string; text?: string };
+        const msg = JSON.parse(event.data) as {
+          type: string;
+          text?: string;
+          turnId?: number;
+          timeline?: VisemeCue[];
+        };
         if (msg.type === "transcript" && msg.text) {
           setTranscript((prev) => prev + msg.text);
+        } else if (msg.type === "viseme_turn_start" && typeof msg.turnId === "number") {
+          activeVisemeTurnRef.current = msg.turnId;
+          pendingTimelineOriginRef.current = true;
+          setTimelineAudioStartTime(null);
+          setVisemeTimeline([]);
+        } else if (
+          msg.type === "viseme_timeline" &&
+          typeof msg.turnId === "number" &&
+          msg.turnId === activeVisemeTurnRef.current &&
+          Array.isArray(msg.timeline)
+        ) {
+          setVisemeTimeline(normalizeVisemeTimeline(msg.timeline));
+        } else if (msg.type === "viseme_interrupted") {
+          for (const scheduled of scheduledAudioRef.current) {
+            try { scheduled.source?.stop(); } catch { /* already ended */ }
+          }
+          scheduledAudioRef.current = [];
+          nextPlayTimeRef.current = audioCtx.currentTime;
+          setVisemeTimeline([]);
+          setTimelineAudioStartTime(null);
+          pendingTimelineOriginRef.current = false;
         } else if (msg.type === "turn_complete") {
           // เจอจริง (2026-09-14): transcript สะสมข้ามทั้ง session แบบไม่มีจุดแบ่งเทิร์นเลย ทำให้
           // บทสนทนาหลายเทิร์นปกติ (ผู้ใช้ถามต่อเนื่องหลายคำถามระหว่างทดสอบ) อ่านเหมือนแมวพูดเองไม่
@@ -630,6 +764,13 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           setTranscript((prev) => (prev ? prev + "\n\n---\n\n" : prev));
           // เสียงอาจยังเล่นค้างอยู่ (บัฟไว้ล่วงหน้า) — ปล่อยให้ isBotSpeaking() ใน tick() เป็นคนตัดสิน
           // ว่าจบจริงเมื่อไหร่ ไม่ reset transcript ที่นี่ทันที เผื่อผู้ใช้อยากอ่านคำตอบล่าสุด
+        } else if (msg.type === "conversation_end") {
+          // backend ส่งทันทีตอน Gemini เรียก tool flag_conversation_end เอง (ดู routers/voice.py —
+          // จุดเดียวกับที่ tracker.flag_conversation_end() ถูกเรียกเพื่อตัด analytics boundary) ไม่ใช่
+          // ตอน turn_complete เพราะอยากให้ frontend รู้ล่วงหน้าที่สุด — ยังไม่ตัด mic/WS ตรงนี้เลย แค่
+          // ตั้ง flag ไว้ก่อน ตัดจริงตอนเสียงลาพูดจบจริงใน tick() ด้านบน (เหตุผลเดียวกับ
+          // BOT_SPEECH_END_HANGOVER_MS: ตัดตรงนี้ทันทีจะไปคาบเกี่ยวเสียงลาที่ยังเล่นค้างอยู่ในคิว)
+          pendingConversationEndRef.current = true;
         } else if (msg.type === "off_topic") {
           // flag เชิงโครงสร้างจาก backend (Gemini เรียก tool flag_off_topic เอง — ไม่ได้เดาจาก
           // keyword ใน transcript ห้าม guess เด็ดขาดตามที่ตกลงกันไว้) มาถึงก่อนเสียงตอบจะเริ่มเล่น
@@ -661,22 +802,51 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       // ไปยัง session/การเชื่อมต่อครั้งถัดไป (คนถัดไปกดเริ่มคุยมาเจอแมวโกรธใส่ทันที แย่กว่าบั๊กเดิม)
       // เคลียร์กลับ idle ให้ครบเหมือนตอน disconnect() ปกติ — ต้อง clear idleTimerRef ด้วย ไม่งั้น
       // ถ้ามี timer ค้างจากก่อนหน้า (ตั้งไว้จาก resetIdleTimer() รอบล่าสุดตอนยังเชื่อมต่ออยู่) มันจะ
-      // ยิง setCatStateSafe("sleep") ทับ idle ที่เพิ่ง set ไปหลังจากนี้อีกที (เจอจริงตอนทดสอบ)
+      // ยิง disconnect() ซ้ำทับสถานะที่เพิ่ง set ไปหลังจากนี้อีกที (เจอจริงตอนทดสอบ)
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       setCatStateSafe("idle");
       setBotSpeaking(false);
       setIsThinking(false);
       setOffTopic(false);
       setAmplitude(0);
+      setVisemeTimeline([]);
+      setTimelineAudioStartTime(null);
       hasBotSpokenThisTurnRef.current = false;
       botSpeechEndSinceRef.current = null;
+      pendingConversationEndRef.current = false;
       wasSpeechRef.current = false;
       silentStreakRef.current = 0;
       listeningSilentStreakRef.current = 0;
+      armSleepTimer(); // กลับมา "ไม่มีใครใช้งาน" จริงแล้ว เริ่มนับถอยหลังเข้า sleep ใหม่ (ดู armSleepTimer)
     };
-  }, [isBotSpeaking, resetIdleTimer, setCatStateSafe, setConnectionStateSafe, debugEnabled]);
+  }, [armSleepTimer, isBotSpeaking, resetIdleTimer, disconnect, setCatStateSafe, setConnectionStateSafe, debugEnabled]);
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
 
-  return { connectionState, catState, botSpeaking, isThinking, offTopic, amplitude, transcript, errorMessage, connect, disconnect, debugVad };
+  // เริ่มนับถอยหลังเข้า sleep ตั้งแต่เปิดแอปครั้งแรก (ยังไม่เคยมีใครคุยเลยก็ต้องนับเหมือนกัน) —
+  // ต้อง clear sleepTimerRef ตอน unmount ด้วย ไม่งั้น timer ยิง setState หลัง component หายไปแล้ว
+  useEffect(() => {
+    armSleepTimer();
+    return () => {
+      if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
+    };
+  }, [armSleepTimer]);
+
+  return {
+    connectionState,
+    catState,
+    botSpeaking,
+    isThinking,
+    offTopic,
+    amplitude,
+    currentViseme,
+    visemeTimeline,
+    visemeProgress: visemeFrame.progressWithinCue,
+    currentVisemeCue: visemeFrame.cue,
+    transcript,
+    errorMessage,
+    connect,
+    disconnect,
+    debugVad,
+  };
 }
