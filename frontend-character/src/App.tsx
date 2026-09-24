@@ -4,6 +4,7 @@ import { FigmaPreviewControls, useFigmaPreviewControls } from "./components/char
 import { ClippedCircle } from "./components/ClippedCircle";
 import { HamburgerMenu } from "./components/HamburgerMenu";
 import { LiveVoicePanel } from "./components/LiveVoicePanel";
+import { VisemeDebugPanel } from "./components/VisemeDebugPanel";
 import { LOCAL_VAD_RMS_THRESHOLD, useVoiceSocket } from "./hooks/useVoiceSocket";
 import { useWakeWord } from "./hooks/useWakeWord";
 import { formatWakeLog } from "./lib/wakeLog";
@@ -122,7 +123,15 @@ export function App() {
       {/* จอจริงต้องเป็นหน้าแมวเต็มจอเสมอ (2026-09-10 — ดู CLAUDE.md) เต็มทุกโหมด ไม่ใช่แค่ live-voice
           ปุ่ม/แผงควบคุมทั้งหมดที่เคยเรียงข้าง ๆ ย้ายไปอยู่ใน HamburgerMenu มุมขวาบนแทน */}
       <div className="app-stage">
-        <CatFace state={faceState} viseme={activeViseme} language="auto" gaze={activeGaze} blink={activeBlink} />
+        <CatFace
+          state={faceState}
+          viseme={activeViseme}
+          language="auto"
+          gaze={activeGaze}
+          blink={activeBlink}
+          mouthScaleX={voice.mouthScaleX}
+          mouthScaleY={voice.mouthScaleY}
+        />
       </div>
 
       <HamburgerMenu>
@@ -188,6 +197,14 @@ export function App() {
           <div>wasSpeech: {String(voice.debugVad?.wasSpeech ?? false)}</div>
           <div>offTopic: {String(voice.offTopic)}</div>
         </div>
+      )}
+
+      {isDebug && mode === "live-voice" && (
+        <VisemeDebugPanel
+          snapshot={voice.visemeDebug}
+          currentViseme={voice.currentViseme}
+          currentCue={voice.currentVisemeCue}
+        />
       )}
 
       {isDebug && mode === "live-voice" && (

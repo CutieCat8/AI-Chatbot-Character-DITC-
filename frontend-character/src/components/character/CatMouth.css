@@ -2,6 +2,12 @@
   pointer-events: none;
 }
 
+.cat-mouth__pose {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 50ms linear;
+}
+
 .cat-mouth__shape {
   transform-box: fill-box;
   transform-origin: center;
@@ -25,6 +31,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .cat-mouth__pose {
+    transition: none;
+  }
+
   .cat-mouth__shape {
     animation: none;
   }

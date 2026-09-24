@@ -1,10 +1,17 @@
-import type { CatViseme } from "./catVisemes";
+import {
+  poseToTransform,
+  type CatViseme,
+  type ExtendedVisemePose,
+} from "./catVisemes";
+
+const COARTICULATION_WINDOW_MS = 60;
 
 export interface VisemeCue {
   startMs: number;
   endMs: number;
   viseme: CatViseme;
   text?: string;
+  pose?: ExtendedVisemePose;
 }
 
 export interface VisemeFrame {
@@ -12,6 +19,8 @@ export interface VisemeFrame {
   progressWithinCue: number;
   isSpeaking: boolean;
   cue: VisemeCue | null;
+  poseScaleX: number;
+  poseScaleY: number;
 }
 
 export function normalizeVisemeTimeline(input: readonly VisemeCue[]): VisemeCue[] {
@@ -23,7 +32,12 @@ export function normalizeVisemeTimeline(input: readonly VisemeCue[]): VisemeCue[
   const merged: VisemeCue[] = [];
   for (const cue of sorted) {
     const previous = merged[merged.length - 1];
-    if (previous && previous.viseme === cue.viseme && cue.startMs <= previous.endMs + 1) {
+    if (
+      previous
+      && previous.viseme === cue.viseme
+      && previous.pose === cue.pose
+      && cue.startMs <= previous.endMs + 1
+    ) {
       previous.endMs = Math.max(previous.endMs, cue.endMs);
       previous.text = `${previous.text ?? ""}${cue.text ?? ""}` || undefined;
     } else {
@@ -38,17 +52,38 @@ export function getVisemeFrame(
   playbackMs: number,
   isPlaying: boolean,
 ): VisemeFrame {
-  if (!isPlaying || playbackMs < 0) {
-    return { currentViseme: "idle", progressWithinCue: 0, isSpeaking: false, cue: null };
-  }
-  const cue = timeline.find(({ startMs, endMs }) => playbackMs >= startMs && playbackMs < endMs) ?? null;
-  if (!cue || cue.viseme === "idle") {
-    return { currentViseme: "idle", progressWithinCue: 0, isSpeaking: false, cue };
-  }
+  const idle = (cue: VisemeCue | null = null): VisemeFrame => ({
+    currentViseme: "idle",
+    progressWithinCue: 0,
+    isSpeaking: false,
+    cue,
+    poseScaleX: 1,
+    poseScaleY: 1,
+  });
+  if (!isPlaying || playbackMs < 0) return idle();
+
+  const cueIndex = timeline.findIndex(({ startMs, endMs }) => playbackMs >= startMs && playbackMs < endMs);
+  const cue = cueIndex >= 0 ? timeline[cueIndex] : null;
+  if (!cue || cue.viseme === "idle") return idle(cue);
+
+  const progressWithinCue = Math.min(
+    1,
+    Math.max(0, (playbackMs - cue.startMs) / (cue.endMs - cue.startMs)),
+  );
+  const currentTransform = poseToTransform(cue.pose);
+  const nextCue = timeline[cueIndex + 1];
+  const nextTransform = nextCue ? poseToTransform(nextCue.pose) : currentTransform;
+  const transitionStart = Math.max(cue.startMs, cue.endMs - COARTICULATION_WINDOW_MS);
+  const blend = nextCue && playbackMs >= transitionStart
+    ? Math.min(1, (playbackMs - transitionStart) / Math.max(1, cue.endMs - transitionStart))
+    : 0;
+
   return {
     currentViseme: cue.viseme,
-    progressWithinCue: Math.min(1, Math.max(0, (playbackMs - cue.startMs) / (cue.endMs - cue.startMs))),
+    progressWithinCue,
     isSpeaking: true,
     cue,
+    poseScaleX: currentTransform.scaleX + (nextTransform.scaleX - currentTransform.scaleX) * blend,
+    poseScaleY: currentTransform.scaleY + (nextTransform.scaleY - currentTransform.scaleY) * blend,
   };
 }

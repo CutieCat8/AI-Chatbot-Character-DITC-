@@ -10,6 +10,8 @@ interface CatMouthProps {
   y?: number;
   width?: number;
   height?: number;
+  scaleX?: number;
+  scaleY?: number;
 }
 
 const ASSET_BASE = `${import.meta.env.BASE_URL}cat-mouth`;
@@ -23,6 +25,8 @@ function CatMouthComponent({
   y = 590,
   width = 176,
   height = 156,
+  scaleX = 1,
+  scaleY = 1,
 }: CatMouthProps) {
   const displayedViseme: CatViseme = isSpeaking || viseme === "smile" ? viseme : "idle";
 
@@ -33,16 +37,21 @@ function CatMouthComponent({
       data-language={language}
       aria-hidden="true"
     >
-      <image
-        key={displayedViseme}
-        className="cat-mouth__shape"
-        href={`${ASSET_BASE}/${displayedViseme}.svg`}
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        preserveAspectRatio="xMidYMid meet"
-      />
+      <g
+        className="cat-mouth__pose"
+        style={{ transform: `scale(${scaleX} ${scaleY})` }}
+      >
+        <image
+          key={displayedViseme}
+          className="cat-mouth__shape"
+          href={`${ASSET_BASE}/${displayedViseme}.svg`}
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          preserveAspectRatio="xMidYMid meet"
+        />
+      </g>
     </g>
   );
 }
