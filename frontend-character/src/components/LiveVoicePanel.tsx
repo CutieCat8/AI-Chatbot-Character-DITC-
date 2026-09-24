@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { VoiceConnectionState } from "../hooks/useVoiceSocket";
 import "./LiveVoicePanel.css";
 
@@ -24,6 +25,14 @@ const STATUS_LABEL: Record<VoiceConnectionState, string> = {
 export function LiveVoicePanel({ connectionState, transcript, errorMessage, onConnect, onDisconnect }: Props) {
   const isConnected = connectionState === "connected" || connectionState === "connecting";
 
+  // เลื่อนกล่อง transcript ลงล่างสุดอัตโนมัติทุกครั้งที่มีข้อความใหม่เข้ามา — เดิมต้องเลื่อนเอง
+  // (overflow-y: auto เฉย ๆ ไม่เลื่อนตามให้) ผู้ใช้ต้องเห็นคำตอบล่าสุดโดยไม่ต้องขยับเมาส์เอง
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [transcript]);
+
   return (
     <div className="live-voice-panel">
       <button className="live-voice-button" onClick={isConnected ? onDisconnect : onConnect}>
@@ -34,7 +43,7 @@ export function LiveVoicePanel({ connectionState, transcript, errorMessage, onCo
       {errorMessage && <p className="live-voice-error">{errorMessage}</p>}
 
       {transcript && (
-        <div className="live-voice-transcript">
+        <div className="live-voice-transcript" ref={transcriptRef}>
           <strong>แมวพูดว่า:</strong> {transcript}
         </div>
       )}

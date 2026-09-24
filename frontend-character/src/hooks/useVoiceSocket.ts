@@ -627,7 +627,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           // หยุดทั้งที่จริงๆ แมวตอบคำถามจริงทุกประโยค (ยืนยันจาก [input_stt_diag] ฝั่ง backend —
           // Gemini ได้ยินคำถามจริงของผู้ใช้ทุกครั้ง ไม่ใช่ echo/hallucination) ใส่เส้นแบ่งเทิร์นให้
           // ชัดเจน กันเข้าใจผิดแบบนี้อีกตอน debug
-          setTranscript((prev) => (prev ? prev + "\n---\n" : prev));
+          setTranscript((prev) => (prev ? prev + "\n\n---\n\n" : prev));
           // เสียงอาจยังเล่นค้างอยู่ (บัฟไว้ล่วงหน้า) — ปล่อยให้ isBotSpeaking() ใน tick() เป็นคนตัดสิน
           // ว่าจบจริงเมื่อไหร่ ไม่ reset transcript ที่นี่ทันที เผื่อผู้ใช้อยากอ่านคำตอบล่าสุด
         } else if (msg.type === "off_topic") {
