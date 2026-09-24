@@ -203,6 +203,8 @@ interface CatFaceProps {
   blink?: boolean;
   viseme?: CatViseme;
   language?: CatSpeechLanguage;
+  mouthScaleX?: number;
+  mouthScaleY?: number;
   className?: string;
 }
 
@@ -212,6 +214,8 @@ export default function CatFace({
   blink = false,
   viseme = "idle",
   language = "auto",
+  mouthScaleX = 1,
+  mouthScaleY = 1,
   className = "",
 }: CatFaceProps) {
   const cfg = STATES[state] ?? STATES.idle;
@@ -294,6 +298,8 @@ export default function CatFace({
           viseme={state === "waking" ? "smile" : viseme}
           isSpeaking={state === "speaking"}
           language={language}
+          scaleX={mouthScaleX}
+          scaleY={mouthScaleY}
         />
       )}
 

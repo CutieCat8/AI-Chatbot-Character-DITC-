@@ -90,6 +90,22 @@ const WS_URL = import.meta.env.VITE_VOICE_WS_URL ?? `${wsProtocol}://${location.
 
 export type VoiceConnectionState = "idle" | "connecting" | "connected" | "error" | "closed";
 
+export interface VisemeDebugSnapshot {
+  turnId: number;
+  transcript: string;
+  source: string;
+  alignment: string;
+  durationMs: number;
+  final: boolean;
+  ipa: Array<{ text: string; ipa: string; status: string }>;
+  metrics: {
+    cueChangesPerSecond: number;
+    visemeRatios: Record<string, number>;
+    durationMs: number;
+  };
+  timeline: readonly VisemeCue[];
+}
+
 interface UseVoiceSocketResult {
   connectionState: VoiceConnectionState;
   catState: CatState;
@@ -114,6 +130,8 @@ interface UseVoiceSocketResult {
   offTopic: boolean;
   amplitude: number;
   currentViseme: CatViseme;
+  mouthScaleX: number;
+  mouthScaleY: number;
   visemeTimeline: readonly VisemeCue[];
   visemeProgress: number;
   currentVisemeCue: VisemeCue | null;
@@ -130,6 +148,7 @@ interface UseVoiceSocketResult {
    * เทียบ threshold สดตอนพูดจริง ก่อนตัดสินใจปรับ LOCAL_VAD_RMS_THRESHOLD/hangover ร่วมกัน
    */
   debugVad: { rms: number; isSpeechNow: boolean; wasSpeech: boolean } | null;
+  visemeDebug: VisemeDebugSnapshot | null;
 }
 
 export function floatTo16BitPCM(float32: Float32Array): ArrayBuffer {
@@ -215,6 +234,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const [transcript, setTranscript] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [visemeTimeline, setVisemeTimeline] = useState<VisemeCue[]>([]);
+  const [visemeDebug, setVisemeDebug] = useState<VisemeDebugSnapshot | null>(null);
   const [timelineAudioStartTime, setTimelineAudioStartTime] = useState<number | null>(null);
   const [timelineAudioContext, setTimelineAudioContext] = useState<AudioContext | null>(null);
 
@@ -315,6 +335,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setTimelineAudioContext(null);
     setTimelineAudioStartTime(null);
     setVisemeTimeline([]);
+    setVisemeDebug(null);
     activeVisemeTurnRef.current = null;
     pendingTimelineOriginRef.current = false;
     setConnectionStateSafe("closed");
@@ -367,6 +388,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     setTimelineAudioContext(audioCtx);
     setTimelineAudioStartTime(null);
     setVisemeTimeline([]);
+    setVisemeDebug(null);
     activeVisemeTurnRef.current = null;
     pendingTimelineOriginRef.current = false;
     // มือถือ (Android Chrome รวมถึง Safari) เข้มงวดเรื่อง autoplay กว่า desktop บางรุ่น AudioContext
@@ -551,7 +573,10 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     micSource.connect(micProcessor);
     micProcessor.connect(audioCtx.destination); // ไม่มีเสียงออกจริง (ไม่ได้เขียน outputBuffer) แค่ให้ node ทำงาน
 
-    const ws = new WebSocket(WS_URL);
+    const wsEndpoint = debugEnabled
+      ? `${WS_URL}${WS_URL.includes("?") ? "&" : "?"}debug=1`
+      : WS_URL;
+    const ws = new WebSocket(wsEndpoint);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
@@ -695,6 +720,14 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           text?: string;
           turnId?: number;
           timeline?: VisemeCue[];
+          durationMs?: number;
+          final?: boolean;
+          source?: string;
+          alignment?: string;
+          debug?: {
+            ipa?: Array<{ text: string; ipa: string; status: string }>;
+            metrics?: VisemeDebugSnapshot["metrics"];
+          };
         };
         if (msg.type === "transcript" && msg.text) {
           setTranscript((prev) => prev + msg.text);
@@ -703,13 +736,32 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
           pendingTimelineOriginRef.current = true;
           setTimelineAudioStartTime(null);
           setVisemeTimeline([]);
+          setVisemeDebug(null);
         } else if (
           msg.type === "viseme_timeline" &&
           typeof msg.turnId === "number" &&
           msg.turnId === activeVisemeTurnRef.current &&
           Array.isArray(msg.timeline)
         ) {
-          setVisemeTimeline(normalizeVisemeTimeline(msg.timeline));
+          const normalizedTimeline = normalizeVisemeTimeline(msg.timeline);
+          setVisemeTimeline(normalizedTimeline);
+          if (debugEnabled) {
+            setVisemeDebug({
+              turnId: msg.turnId,
+              transcript: msg.text ?? "",
+              source: msg.source ?? "unknown",
+              alignment: msg.alignment ?? "unknown",
+              durationMs: msg.durationMs ?? 0,
+              final: msg.final ?? false,
+              ipa: msg.debug?.ipa ?? [],
+              metrics: msg.debug?.metrics ?? {
+                cueChangesPerSecond: 0,
+                visemeRatios: {},
+                durationMs: msg.durationMs ?? 0,
+              },
+              timeline: normalizedTimeline,
+            });
+          }
         } else if (msg.type === "viseme_interrupted") {
           for (const scheduled of scheduledAudioRef.current) {
             try { scheduled.source?.stop(); } catch { /* already ended */ }
@@ -794,6 +846,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     offTopic,
     amplitude,
     currentViseme,
+    mouthScaleX: visemeFrame.poseScaleX,
+    mouthScaleY: visemeFrame.poseScaleY,
     visemeTimeline,
     visemeProgress: visemeFrame.progressWithinCue,
     currentVisemeCue: visemeFrame.cue,
@@ -802,5 +856,6 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     connect,
     disconnect,
     debugVad,
+    visemeDebug,
   };
 }

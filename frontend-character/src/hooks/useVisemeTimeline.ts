@@ -17,6 +17,8 @@ const IDLE_FRAME: VisemeFrame = {
   progressWithinCue: 0,
   isSpeaking: false,
   cue: null,
+  poseScaleX: 1,
+  poseScaleY: 1,
 };
 
 /** Uses the Web Audio clock as the only lip-sync clock; rAF only repaints the current cue. */
