@@ -125,6 +125,7 @@ export function App() {
       <div className="app-stage">
         <CatFace
           state={faceState}
+          isSpeaking={mode === "live-voice" && voice.botSpeaking}
           viseme={activeViseme}
           language="auto"
           gaze={activeGaze}

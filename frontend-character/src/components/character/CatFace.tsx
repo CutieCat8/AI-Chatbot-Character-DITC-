@@ -198,6 +198,8 @@ export const STATES: Record<CatFaceState, StateConfig> = {
 
 interface CatFaceProps {
   state?: CatFaceState;
+  /** เสียงของบอทกำลังเล่นอยู่ แม้สีหน้าจะเป็น state อื่น เช่น angry */
+  isSpeaking?: boolean;
   /** ตำแหน่งรูม่านตา [x, y] มีผลเฉพาะตอน state ที่ตาเป็นแบบ gaze (listening) */
   gaze?: readonly [number, number];
   blink?: boolean;
@@ -210,6 +212,7 @@ interface CatFaceProps {
 
 export default function CatFace({
   state = "idle",
+  isSpeaking = false,
   gaze = [0, 0],
   blink = false,
   viseme = "idle",
@@ -220,6 +223,7 @@ export default function CatFace({
 }: CatFaceProps) {
   const cfg = STATES[state] ?? STATES.idle;
   const showPupils = cfg.eyes === "gaze";
+  const mouthIsSpeaking = state === "speaking" || isSpeaking;
 
   // หูสลับ folded/normal ทุก 1 วิ ตลอดที่ยังอยู่ใน "listening" (วนจนกว่า state จะเปลี่ยน เช่น
   // ผู้ใช้พูดจบแล้ว) — fade ข้ามกลุ่ม (opacity) 220ms ให้ดูเหมือนค่อย ๆ พับแทนการสลับทันที ยังเป็น
@@ -290,13 +294,13 @@ export default function CatFace({
       </g>
       {WHISKERS}
 
-      {/* Angry keeps its established expression. Other states use the aligned Figma mouth canvas. */}
-      {state === "angry" ? (
+      {/* หน้าโกรธใช้ปากขมวดตอนเงียบ แต่ระหว่างตอบนอกขอบเขตยังต้องใช้ viseme ขยับปากตามเสียง */}
+      {state === "angry" && !mouthIsSpeaking ? (
         MOUTH.frown
       ) : (
         <CatMouth
           viseme={state === "waking" ? "smile" : viseme}
-          isSpeaking={state === "speaking"}
+          isSpeaking={mouthIsSpeaking}
           language={language}
           scaleX={mouthScaleX}
           scaleY={mouthScaleY}
