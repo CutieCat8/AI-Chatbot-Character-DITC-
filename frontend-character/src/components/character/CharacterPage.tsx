@@ -23,6 +23,10 @@ const LABEL: Record<CatFaceState, string> = {
   angry: "นอกขอบเขต",
 };
 
+// ซ่อนปุ่มจำลอง "โดนปลุก" จากหน้า Preview ไว้ก่อน เพราะโปรเจกต์ยังไม่มี flow นี้ให้ผู้ใช้กดเอง
+// แต่คง state `waking` และสีหน้าเดิมไว้ เผื่อเพิ่มฟีเจอร์ในอนาคต — ลบ filter นี้เพื่อเปิดปุ่มกลับมา
+const PREVIEW_FACE_STATES = CAT_FACE_STATES.filter((state) => state !== "waking");
+
 export function useFigmaPreviewControls() {
   const [state, setState] = useState<CatFaceState>("idle");
   const [auto, setAuto] = useState(true);
@@ -48,7 +52,7 @@ export function FigmaPreviewControls({ state, setState, auto, setAuto, gaze }: F
   return (
     <div className="figma-preview-panel">
       <div className="figma-preview__buttons">
-        {CAT_FACE_STATES.map((s) => (
+        {PREVIEW_FACE_STATES.map((s) => (
           <button
             key={s}
             onClick={() => setState(s)}
