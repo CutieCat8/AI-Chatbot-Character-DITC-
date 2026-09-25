@@ -75,8 +75,8 @@ export function App() {
       (voice.connectionState === "idle" || voice.connectionState === "closed"),
     // playGreeting: เฉพาะทางนี้เท่านั้น — ปุ่ม "เริ่มคุย" ที่ LiveVoicePanel เรียก voice.connect() ตรงๆ
     // ไม่มี flag นี้ ยังรอผู้ใช้พูดก่อนตามเดิม (ผู้ใช้กดปุ่มเองอยู่แล้ว ต่างจาก wake-word ที่ไม่มีปุ่ม
-    // ให้กดยืนยันอีกที) เล่นไฟล์เสียงทักทายตรงๆ ไม่ผ่าน Gemini เลย — ดู GREETING_AUDIO_URL ใน
-    // useVoiceSocket.ts (เลิกใช้ synthetic turn ผ่าน send_client_content แล้ว ดู CLAUDE.md)
+    // ให้กดยืนยันอีกที) สุ่มเล่นไฟล์เสียงทักทาย local ตรงๆ ไม่ผ่าน Gemini เลย — ดู greetingRotation.ts
+    // และ useVoiceSocket.ts (เลิกใช้ synthetic turn ผ่าน send_client_content แล้ว ดู CLAUDE.md)
     onDetected: () => { void voice.connect({ playGreeting: true }); },
     onTranscript: isDebug ? (transcript) => setWakeWordTranscript(transcript) : undefined,
   });

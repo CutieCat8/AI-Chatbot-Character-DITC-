@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CatViseme } from "../lib/catVisemes";
+import {
+  GREETING_VARIANTS,
+  createGreetingRotationState,
+  drawNextGreeting,
+  greetingAudioUrl,
+} from "../lib/greetingRotation";
 import { normalizeVisemeTimeline, type VisemeCue } from "../lib/visemeTimeline";
 import { useVisemeTimeline } from "./useVisemeTimeline";
 import { logWake } from "../lib/wakeLog";
@@ -54,7 +60,9 @@ const SLEEP_AFTER_INACTIVITY_MS = 5 * 60 * 1000;
 // เทิร์นสลับ/ตอบช้าไม่คงที่/เทิร์นสองแทรกมาก่อนเทิร์นแรกจบ) ไม่ใช่แค่เรื่อง timing ที่ปรับ grace period
 // แก้ได้ ดูรายละเอียดเต็มที่ CLAUDE.md — แก้โดยเลิกส่งอะไรเข้า Gemini เลยตอนตื่น ใช้ไฟล์เสียงอัดไว้
 // ล่วงหน้าแทน เล่นผ่าน Web Audio API ตรงๆ ไม่ผ่าน session เลยสักครั้ง (ดู connect() ส่วนเล่นเสียงทักทาย)
-const GREETING_AUDIO_URL = "/audio/greeting.wav";
+// (2026-09-25) เปลี่ยนจาก tone placeholder ไฟล์เดียวเป็น 11 ไฟล์ Despina ที่สุ่มแบบ shuffle bag
+// ผ่าน greetingRotation.ts และมี viseme timeline ล่วงหน้าของแต่ละไฟล์
+const GREETING_ECHO_TAIL_MS = 250;
 
 // ⚠️ ทดลองแก้บั๊ก "เสียงติ๊ก/ป็อบแทรกระหว่างแมวพูด" (2026-09-08) — ยังไม่ยืนยันด้วยอุปกรณ์จริง/หูจริง
 // ห้ามเชื่อว่าหายแล้วจนกว่าจะรัน docs/click-noise-manual-test-plan.md บนแท็บเล็ตจริง (ดู CLAUDE.md)
@@ -142,9 +150,9 @@ interface UseVoiceSocketResult {
   currentVisemeCue: VisemeCue | null;
   transcript: string;
   errorMessage: string | null;
-  /** `playGreeting`: เล่นเสียงทักทายจากไฟล์ (`GREETING_AUDIO_URL`) ทันทีตอนเริ่ม connect — ใช้เฉพาะ
+  /** `playGreeting`: สุ่มและเล่นเสียงทักทาย local จาก greeting manifest ทันทีตอนเริ่ม connect — ใช้เฉพาะ
    * ตอนตื่นจาก wake-word เท่านั้น (ปุ่ม "เริ่มคุย" ไม่ส่ง flag นี้ ยังคงพฤติกรรมเดิมทุกประการ ไม่ทักทาย
-   * เอง) ไม่ผ่าน Gemini เลย — ดูคอมเมนต์ที่ GREETING_AUDIO_URL ต้นไฟล์ว่าทำไมเลิกใช้ synthetic turn */
+   * เอง) ไม่ผ่าน Gemini เลย — ดูคอมเมนต์ส่วน greeting ต้นไฟล์ว่าทำไมเลิกใช้ synthetic turn */
   connect: (options?: { playGreeting?: boolean }) => Promise<void>;
   disconnect: () => void;
   /**
@@ -257,6 +265,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
   const playbackStartedRef = useRef(false);
   const pendingTimelineOriginRef = useRef(false);
   const activeVisemeTurnRef = useRef<number | null>(null);
+  const greetingRotationRef = useRef(createGreetingRotationState());
+  const greetingAudioCacheRef = useRef(new Map<string, Promise<ArrayBuffer | null>>());
   const rafIdRef = useRef<number | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -291,6 +301,29 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     audioContext: timelineAudioContext,
   });
   const currentViseme = visemeFrame.currentViseme;
+
+  const loadGreetingAudio = useCallback((file: string): Promise<ArrayBuffer | null> => {
+    const cached = greetingAudioCacheRef.current.get(file);
+    if (cached) return cached;
+    const pending = fetch(greetingAudioUrl(file))
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .catch((error: unknown) => {
+        greetingAudioCacheRef.current.delete(file);
+        logWake("greeting_preload_error", `${file}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      });
+    greetingAudioCacheRef.current.set(file, pending);
+    return pending;
+  }, []);
+
+  // อุ่น browser cache ตั้งแต่หน้าโหลด ลดช่องว่างหลังตรวจเจอคำปลุก ทุก promise จัดการ error ภายในแล้ว
+  // จึงไม่เกิด unhandled rejection หากไฟล์ใดไฟล์หนึ่งโหลดไม่ได้
+  useEffect(() => {
+    for (const greeting of GREETING_VARIANTS) void loadGreetingAudio(greeting.file);
+  }, [loadGreetingAudio]);
 
   const setCatStateSafe = useCallback((s: CatState) => {
     catStateRef.current = s;
@@ -417,6 +450,17 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     pendingConversationEndRef.current = false;
     setOffTopic(false);
 
+    const greetingDraw = options?.playGreeting
+      ? drawNextGreeting(greetingRotationRef.current)
+      : null;
+    if (greetingDraw) greetingRotationRef.current = greetingDraw.state;
+    const selectedGreeting = greetingDraw?.greeting ?? null;
+    // เริ่ม guard ตั้งแต่ก่อน await fetch/decode ไม่ใช่หลัง schedule เสียง เพราะ WS อาจเปิดก่อนโหลดไฟล์
+    // เสร็จและปล่อยเสียงห้องเข้า Gemini ในช่องว่างนั้นได้
+    let greetingGuardActive = selectedGreeting !== null;
+    let greetingReleaseUntil = 0;
+    if (selectedGreeting) logWake("greeting_selected", selectedGreeting.id);
+
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
     setTimelineAudioContext(audioCtx);
@@ -443,26 +487,42 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
     analyser.connect(audioCtx.destination);
     analyserRef.current = analyser;
 
-    // เล่นเสียงทักทายจากไฟล์ทันที (2026-09-15 — ดู GREETING_AUDIO_URL ต้นไฟล์ว่าทำไมเลิกใช้ Gemini
-    // ทักทายเอง) — fire-and-forget ด้วย void ตรงนี้เลย ไม่ await จึงไม่บล็อก getUserMedia/WS ด้านล่าง
-    // (เล่นได้ทันทีที่ตื่น ไม่ต้องรอ ws_open เลยด้วยซ้ำ) เล่นผ่าน outputGain เส้นทางเดียวกับเสียงตอบ
-    // ของ Gemini จริง แล้ว push เข้า scheduledAudioRef เหมือนก้อนเสียงปกติทุกประการ — ได้ half-duplex
-    // mute (isBotSpeaking()) ฟรีทันทีจากกลไกเดิมที่มีอยู่แล้ว ไม่ต้องเขียน mute state ใหม่เลยสักบรรทัด
-    if (options?.playGreeting) {
+    // เล่น greeting ที่ shuffle bag เลือกไว้ ไม่ส่งข้อความใดเข้า Gemini และไม่รอ ws_open ไฟล์ถูก preload
+    // ตั้งแต่ mount; slice() ก่อน decode เพราะ decodeAudioData อาจ detach ArrayBuffer ในบาง browser
+    if (selectedGreeting) {
       void (async () => {
         try {
-          logWake("greeting_audio_start");
-          const response = await fetch(GREETING_AUDIO_URL);
-          const arrayBuffer = await response.arrayBuffer();
-          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          logWake("greeting_audio_start", selectedGreeting.id);
+          const arrayBuffer = await loadGreetingAudio(selectedGreeting.file);
+          if (!arrayBuffer) throw new Error(`โหลด ${selectedGreeting.file} ไม่สำเร็จ`);
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+          if (audioCtx.state === "closed") return;
           const source = audioCtx.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(outputGain);
           const startTime = audioCtx.currentTime;
+          setVisemeTimeline(normalizeVisemeTimeline(selectedGreeting.timeline));
+          setTimelineAudioStartTime(startTime);
+          source.onended = () => {
+            if (audioCtxRef.current !== audioCtx) return; // callback จาก session เก่าห้าม reset session ใหม่
+            greetingGuardActive = false;
+            greetingReleaseUntil = performance.now() + GREETING_ECHO_TAIL_MS;
+            // greeting ไม่ใช่คำตอบของ Gemini ในเทิร์นผู้ใช้ ถ้าปล่อย flag นี้ค้าง tick() จะตีความช่วง
+            // รอคำตอบจริงครั้งแรกว่าแมวเคยตอบแล้วและกำลังพูดจบ จึง reset หลังเสียง local จบเสมอ
+            hasBotSpokenThisTurnRef.current = false;
+            botSpeechEndSinceRef.current = null;
+            setVisemeTimeline([]);
+            setTimelineAudioStartTime(null);
+            logWake("greeting_audio_end", selectedGreeting.id);
+          };
+          scheduledAudioRef.current.push({ startTime, endTime: startTime + audioBuffer.duration, source });
           source.start(startTime);
-          scheduledAudioRef.current.push({ startTime, endTime: startTime + audioBuffer.duration });
-          logWake("greeting_audio_scheduled", `${audioBuffer.duration.toFixed(2)}s`);
+          logWake(
+            "greeting_audio_scheduled",
+            `${selectedGreeting.id} ${audioBuffer.duration.toFixed(2)}s`,
+          );
         } catch (error) {
+          greetingGuardActive = false;
           // ไม่ throw ต่อ — เล่นเสียงทักทายไม่สำเร็จไม่ควรทำให้คุยต่อไม่ได้เลย แค่ไม่มีทักทาย
           logWake("greeting_audio_error", error instanceof Error ? error.message : String(error));
           console.warn("เล่นเสียงทักทายไม่สำเร็จ:", error);
@@ -633,9 +693,8 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       if (ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
 
-      // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด (รวมถึงตอนเล่น
-      // เสียงทักทายจากไฟล์ ซึ่ง push เข้า scheduledAudioRef เหมือนเสียง Gemini ปกติ เลยเข้าเงื่อนไขนี้
-      // โดยอัตโนมัติ ไม่ต้องเขียนเงื่อนไขแยก)
+      // Half-duplex โดยตั้งใจ (ดูคอมเมนต์บนสุดของไฟล์) — เว้นการส่งไมค์ตอนแมวกำลังพูด รวมช่วง
+      // greeting กำลัง preload/decode ที่ยังไม่เข้า scheduledAudioRef และ echo tail หลังไฟล์จบด้วย
       //
       // ห้ามอ่าน isBotSpeaking() ดิบๆ ตรงนี้แล้วตัดสิน mute ทันที (ดู MIC_MUTE_HANGOVER_MS ด้านบน
       // ไฟล์ — ช่องว่างจริงกลางเทิร์นเดียวกัน 7-90ms จะทำให้ไมค์กระพริบเปิดตามไปด้วย) ต้องผ่าน hangover
@@ -644,10 +703,19 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       const now = performance.now();
       const botSpeakingRaw = isBotSpeaking();
       if (botSpeakingRaw) lastBotSpeakingAt = now;
+      const greetingGuard = greetingGuardActive || now < greetingReleaseUntil;
       const botSpeakingWithHangover =
-        botSpeakingRaw || (lastBotSpeakingAt !== null && now - lastBotSpeakingAt < MIC_MUTE_HANGOVER_MS);
+        greetingGuard
+        || botSpeakingRaw
+        || (lastBotSpeakingAt !== null && now - lastBotSpeakingAt < MIC_MUTE_HANGOVER_MS);
 
-      const muteReason = botSpeakingWithHangover ? (botSpeakingRaw ? "bot_speaking" : "bot_speaking_hangover") : null;
+      const muteReason = greetingGuardActive
+        ? "greeting"
+        : now < greetingReleaseUntil
+          ? "greeting_echo_tail"
+          : botSpeakingWithHangover
+            ? (botSpeakingRaw ? "bot_speaking" : "bot_speaking_hangover")
+            : null;
       if (muteReason !== micMuteLogState) {
         logWake(muteReason ? "mic_muted" : "mic_open", muteReason ?? undefined);
         micMuteLogState = muteReason;
@@ -747,7 +815,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       setCatStateSafe("idle");
       resetIdleTimer();
       // เสียงทักทาย (ถ้ามี) เล่นไปแล้วตอน connect() เริ่ม ไม่รอ ws_open — ไม่ต้องส่งอะไรพิเศษให้
-      // backend ตรงนี้อีก (ดู GREETING_AUDIO_URL ต้นไฟล์)
+      // backend ตรงนี้อีก (ดูส่วน greeting local ต้นไฟล์)
     };
     ws.onmessage = (event) => {
       if (typeof event.data === "string") {
@@ -871,7 +939,7 @@ export function useVoiceSocket(opts: { debug?: boolean } = {}): UseVoiceSocketRe
       listeningSilentStreakRef.current = 0;
       armSleepTimer(); // กลับมา "ไม่มีใครใช้งาน" จริงแล้ว เริ่มนับถอยหลังเข้า sleep ใหม่ (ดู armSleepTimer)
     };
-  }, [armSleepTimer, isBotSpeaking, resetIdleTimer, disconnect, setCatStateSafe, setConnectionStateSafe, debugEnabled]);
+  }, [armSleepTimer, isBotSpeaking, resetIdleTimer, disconnect, loadGreetingAudio, setCatStateSafe, setConnectionStateSafe, debugEnabled]);
 
   useEffect(() => disconnect, [disconnect]); // cleanup ตอน unmount
 

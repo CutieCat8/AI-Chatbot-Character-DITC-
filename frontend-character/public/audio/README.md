@@ -1,11 +1,14 @@
-`greeting.wav` เป็นไฟล์ placeholder (1.2s, tone 440Hz) — เสียงทักทายจริงยังไม่ได้อัด
+# เสียงทักทายตอนปลุก
 
-แทนที่ไฟล์นี้ด้วยเสียงทักทายจริงได้เลย:
+เมื่อผู้ใช้พูดคำปลุก หน้า Character จะเล่นเสียง Gemini Despina ที่บันทึกไว้ล่วงหน้าจาก
+`audio/greetings/` โดยไม่ส่ง synthetic turn เข้า Gemini Live session จริง
 
-- **ตำแหน่ง:** `frontend-character/public/audio/greeting.wav` (ชื่อไฟล์ต้องเหมือนเดิม — ตั้งอยู่ที่
-  `GREETING_AUDIO_URL` ใน `frontend-character/src/hooks/useVoiceSocket.ts`)
-- **ฟอร์แมต:** อะไรก็ได้ที่ `AudioContext.decodeAudioData()` ของเบราว์เซอร์เล่นได้ (WAV/MP3/OGG ใช้ได้
-  หมด) — ถ้าเปลี่ยนเป็นนามสกุลอื่น (เช่น `.mp3`) ต้องแก้ `GREETING_AUDIO_URL` ให้ตรงด้วย
-- **เนื้อหาที่แนะนำ:** ทักทายสั้น ๆ 1 ประโยค แนะนำตัวว่าเป็น DITC CAT แล้วถามว่าช่วยอะไรได้บ้าง (เนื้อหา
-  เดียวกับที่ `GREET_FIRST_MESSAGE` เดิมเคยสั่งให้ Gemini พูด ก่อนจะเลิกใช้กลไกนั้น — ดู CLAUDE.md)
-- **ความยาว:** ไม่จำกัด แต่สั้นกระชับดีกว่า (ไมค์จะถูก mute อยู่ตลอดที่ไฟล์นี้เล่น)
+- มี 11 ไฟล์ WAV: PCM16, mono, 24 kHz
+- เลือกด้วย shuffle bag: เล่นครบทุกไฟล์ก่อนวนรอบใหม่ และไม่ซ้ำติดกันข้ามรอบ
+- metadata และ viseme timeline อยู่ที่ `src/lib/greetingManifest.json`
+- frontend preload ไฟล์ทั้งหมดและปิดการส่งไมค์ตั้งแต่เริ่มโหลดจนพ้น echo tail หลังเสียงจบ
+- หากโหลดไฟล์ไม่สำเร็จ ระบบข้าม greeting แต่ยังเปิดบทสนทนาต่อได้
+
+ไฟล์ tone 440 Hz เดิมถูกนำออกแล้ว การแก้ข้อความหรือสร้างเสียงใหม่ต้องทำบน branch ทดลอง
+`experiment/gemini-greeting-capture` แล้วนำเฉพาะ WAV ที่ผ่านการฟังตรวจพร้อม timeline ใหม่เข้ามา
+ผ่าน feature branch แยกต่างหาก

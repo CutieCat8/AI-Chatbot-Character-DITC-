@@ -123,9 +123,10 @@
   ให้ Gemini เลยตอนตื่น ใช้ **ไฟล์เสียงทักทายที่อัดไว้ล่วงหน้าแทน** เล่นทันทีที่ `match_detected` (ไม่รอ
   `ws_open` ด้วยซ้ำ) ผ่าน Web Audio API ตรงๆ ไม่ผ่าน Gemini/session เลยสักครั้ง — เล่นผ่าน `outputGain`
   เส้นทางเดียวกับเสียงตอบจริง แล้ว push เข้า `scheduledAudioRef` เหมือนก้อนเสียงปกติ ได้ half-duplex
-  mute (`isBotSpeaking()`) ฟรีจากกลไกเดิมทันที ไม่ต้องเขียน mute state ใหม่เลย (ดู `GREETING_AUDIO_URL`
-  ใน `useVoiceSocket.ts`) **ไฟล์ปัจจุบันเป็น placeholder** (`frontend-character/public/audio/
-  greeting.wav`, 1.2s tone 440Hz) — ต้องอัดเสียงจริงมาแทนที่ก่อนใช้งานจริง (ดู README ในโฟลเดอร์นั้น)
+  mute จากกลไกเดิมทันที **อัปเดต 2026-09-25:** ลบ placeholder tone 440Hz แล้ว ใช้เสียง Despina จริง
+  11 ไฟล์ใต้ `frontend-character/public/audio/greetings/` เลือกด้วย shuffle bag (ครบทุกไฟล์ก่อนวนใหม่
+  และไม่ซ้ำติดกันข้ามรอบ) พร้อม preload, explicit mic guard ตั้งแต่ก่อน decode ถึง echo tail และ viseme
+  timeline ล่วงหน้าของแต่ละไฟล์ (`greetingManifest.json`/`greetingRotation.ts`)
   หลังแก้: ตัด `greet_pending`/`GREET_FIRST_MESSAGE`/`greet_first` WS message type/`[greet_diag]`
   ออกจาก backend ทั้งหมด, ตัด `greetMicMuted`/`receivedAudioForGreetTurn`/`greetTurnCompleteGraceTimer`/
   `GREET_MIC_MUTE_TIMEOUT_MS`/`GREET_TURN_COMPLETE_GRACE_MS`/`?nogreet=1` ออกจาก frontend ทั้งหมด —
