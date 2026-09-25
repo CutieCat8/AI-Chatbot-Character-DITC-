@@ -224,228 +224,252 @@
     {
       "id": "02",
       "file": "greeting-02.wav",
-      "text": "สวัสดีครับ ผมดิ๊ดซีแคทครับ เป็นผู้ช่วยตอบคำถามของศูนย์ DITC และคณะแคมท์ มหาวิทยาลัยเชียงใหม่ครับ มีอะไรให้ช่วย ถามได้เลยนะครับ",
-      "durationMs": 11281,
+      "text": "สวัสดีครับ ผมดิ๊ด-ซี แคทครับ เป็นผู้ช่วยตอบคำถามของศูนย์ดิ๊ด-ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่ครับ มีอะไรให้ช่วย ถามได้เลยนะครับ",
+      "durationMs": 11310,
       "timeline": [
         {
           "startMs": 0,
-          "endMs": 122,
+          "endMs": 112,
           "viseme": "s",
           "text": "สวัส"
         },
         {
-          "startMs": 122,
-          "endMs": 395,
+          "startMs": 112,
+          "endMs": 362,
           "viseme": "wo",
           "text": "สวัส"
         },
         {
-          "startMs": 395,
-          "endMs": 668,
+          "startMs": 362,
+          "endMs": 612,
           "viseme": "ee",
           "text": "ดีค"
         },
         {
-          "startMs": 668,
-          "endMs": 941,
+          "startMs": 612,
+          "endMs": 862,
           "viseme": "aa",
           "text": "รับ"
         },
         {
-          "startMs": 941,
-          "endMs": 1063,
+          "startMs": 862,
+          "endMs": 974,
           "viseme": "mbp",
           "text": "ผมด"
         },
         {
-          "startMs": 1063,
-          "endMs": 1336,
+          "startMs": 974,
+          "endMs": 1474,
           "viseme": "aa",
-          "text": "ผมด"
+          "text": "ผมดด"
         },
         {
-          "startMs": 1336,
-          "endMs": 1882,
+          "startMs": 1474,
+          "endMs": 1586,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 1586,
+          "endMs": 2086,
           "viseme": "ee",
-          "text": "ดซีแคทค"
+          "text": "ซีแคทค"
         },
         {
-          "startMs": 1882,
-          "endMs": 2155,
+          "startMs": 2086,
+          "endMs": 2336,
           "viseme": "aa",
           "text": "รับ"
         },
         {
-          "startMs": 2155,
-          "endMs": 2277,
+          "startMs": 2336,
+          "endMs": 2448,
           "viseme": "mbp",
           "text": "เป็น"
         },
         {
-          "startMs": 2277,
-          "endMs": 2550,
+          "startMs": 2448,
+          "endMs": 2698,
           "viseme": "ee",
           "text": "เป็น"
         },
         {
-          "startMs": 2550,
-          "endMs": 2672,
+          "startMs": 2698,
+          "endMs": 2810,
           "viseme": "mbp",
           "text": "ผู"
         },
         {
-          "startMs": 2672,
-          "endMs": 2945,
+          "startMs": 2810,
+          "endMs": 3060,
           "viseme": "wo",
           "text": "ผู"
         },
         {
-          "startMs": 2945,
-          "endMs": 3067,
+          "startMs": 3060,
+          "endMs": 3172,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 3067,
-          "endMs": 3340,
+          "startMs": 3172,
+          "endMs": 3422,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 3340,
-          "endMs": 3735,
+          "startMs": 3422,
+          "endMs": 3784,
           "viseme": "wo",
           "text": "วยตวยต"
         },
         {
-          "startMs": 3735,
-          "endMs": 4554,
+          "startMs": 3784,
+          "endMs": 4534,
           "viseme": "aa",
           "text": "อบคถามของ"
         },
         {
-          "startMs": 4554,
-          "endMs": 4676,
+          "startMs": 4534,
+          "endMs": 4646,
           "viseme": "s",
           "text": "ศูน"
         },
         {
-          "startMs": 4676,
-          "endMs": 4949,
+          "startMs": 4646,
+          "endMs": 4896,
           "viseme": "wo",
           "text": "ศูน"
         },
         {
-          "startMs": 4949,
-          "endMs": 5222,
+          "startMs": 4896,
+          "endMs": 5146,
           "viseme": "aa",
           "text": "ย"
         },
         {
-          "startMs": 5222,
-          "endMs": 5768,
+          "startMs": 5146,
+          "endMs": 5396,
           "viseme": "ee",
-          "text": "DITCและค"
+          "text": "ดิ"
         },
         {
-          "startMs": 5768,
-          "endMs": 6041,
+          "startMs": 5396,
+          "endMs": 5646,
+          "viseme": "aa",
+          "text": "ด"
+        },
+        {
+          "startMs": 5646,
+          "endMs": 5758,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 5758,
+          "endMs": 6258,
+          "viseme": "ee",
+          "text": "ซีและค"
+        },
+        {
+          "startMs": 6258,
+          "endMs": 6508,
           "viseme": "aa",
           "text": "ณะ"
         },
         {
-          "startMs": 6041,
-          "endMs": 6314,
+          "startMs": 6508,
+          "endMs": 6758,
           "viseme": "ee",
           "text": "แคมท์"
         },
         {
-          "startMs": 6314,
-          "endMs": 6436,
+          "startMs": 6758,
+          "endMs": 6870,
           "viseme": "mbp",
           "text": "มหาว"
         },
         {
-          "startMs": 6436,
-          "endMs": 6709,
+          "startMs": 6870,
+          "endMs": 7120,
           "viseme": "wo",
           "text": "มหาว"
         },
         {
-          "startMs": 6709,
-          "endMs": 7255,
+          "startMs": 7120,
+          "endMs": 7620,
           "viseme": "aa",
           "text": "ทยาลย"
         },
         {
-          "startMs": 7255,
-          "endMs": 7377,
+          "startMs": 7620,
+          "endMs": 7732,
           "viseme": "s",
           "text": "เชีย"
         },
         {
-          "startMs": 7377,
-          "endMs": 7650,
+          "startMs": 7732,
+          "endMs": 7982,
           "viseme": "ee",
           "text": "เชีย"
         },
         {
-          "startMs": 7650,
-          "endMs": 8469,
+          "startMs": 7982,
+          "endMs": 8732,
           "viseme": "aa",
           "text": "งใหมครับ"
         },
         {
-          "startMs": 8469,
-          "endMs": 8591,
+          "startMs": 8732,
+          "endMs": 8844,
           "viseme": "mbp",
           "text": "มีอ"
         },
         {
-          "startMs": 8591,
-          "endMs": 8864,
+          "startMs": 8844,
+          "endMs": 9094,
           "viseme": "ee",
           "text": "มีอ"
         },
         {
-          "startMs": 8864,
-          "endMs": 9410,
+          "startMs": 9094,
+          "endMs": 9594,
           "viseme": "aa",
           "text": "ไรให"
         },
         {
-          "startMs": 9410,
-          "endMs": 9532,
+          "startMs": 9594,
+          "endMs": 9706,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 9532,
-          "endMs": 9805,
+          "startMs": 9706,
+          "endMs": 9956,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 9805,
-          "endMs": 10200,
+          "startMs": 9956,
+          "endMs": 10318,
           "viseme": "wo",
           "text": "วยวย"
         },
         {
-          "startMs": 10200,
-          "endMs": 10746,
+          "startMs": 10318,
+          "endMs": 10818,
           "viseme": "aa",
           "text": "ถามได"
         },
         {
-          "startMs": 10746,
-          "endMs": 11019,
+          "startMs": 10818,
+          "endMs": 11068,
           "viseme": "ee",
           "text": "เลยน"
         },
         {
-          "startMs": 11019,
-          "endMs": 11281,
+          "startMs": 11068,
+          "endMs": 11310,
           "viseme": "aa",
           "text": "ครับ"
         }
@@ -790,211 +814,241 @@
     {
       "id": "05",
       "file": "greeting-05.wav",
-      "text": "สวัสดีจ้ะ! ฉัน DITCH CAT ผู้ช่วยตอบคำถามของศูนย์ DITCH และคณะแคมท์ มหาวิทยาลัยเชียงใหม่นะ มีอะไรให้ช่วยมั้ย?",
-      "durationMs": 8270,
+      "text": "สวัสดีจ้ะ! ฉันดิ๊ด-ซี แคท ผู้ช่วยตอบคำถามของศูนย์ดิ๊ด-ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่นะ มีอะไรให้ช่วยมั้ย?",
+      "durationMs": 9600,
       "timeline": [
         {
           "startMs": 0,
-          "endMs": 103,
+          "endMs": 105,
           "viseme": "s",
           "text": "สวัส"
         },
         {
-          "startMs": 103,
-          "endMs": 333,
+          "startMs": 105,
+          "endMs": 340,
           "viseme": "wo",
           "text": "สวัส"
         },
         {
-          "startMs": 333,
-          "endMs": 563,
+          "startMs": 340,
+          "endMs": 575,
           "viseme": "ee",
           "text": "ดีจ"
         },
         {
-          "startMs": 563,
-          "endMs": 674,
+          "startMs": 575,
+          "endMs": 689,
           "viseme": "idle",
           "text": "!",
           "pose": "sil"
         },
         {
-          "startMs": 674,
-          "endMs": 777,
+          "startMs": 689,
+          "endMs": 794,
           "viseme": "s",
           "text": "ฉัน"
         },
         {
-          "startMs": 777,
-          "endMs": 1007,
+          "startMs": 794,
+          "endMs": 1029,
           "viseme": "aa",
           "text": "ฉัน"
         },
         {
-          "startMs": 1007,
-          "endMs": 1237,
+          "startMs": 1029,
+          "endMs": 1264,
           "viseme": "ee",
-          "text": "DITC"
+          "text": "ดิ"
         },
         {
-          "startMs": 1237,
-          "endMs": 1467,
+          "startMs": 1264,
+          "endMs": 1499,
           "viseme": "aa",
-          "text": "CAT"
+          "text": "ด"
         },
         {
-          "startMs": 1467,
-          "endMs": 1570,
+          "startMs": 1499,
+          "endMs": 1604,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 1604,
+          "endMs": 2074,
+          "viseme": "ee",
+          "text": "ซีแคท"
+        },
+        {
+          "startMs": 2074,
+          "endMs": 2179,
           "viseme": "mbp",
           "text": "ผู"
         },
         {
-          "startMs": 1570,
-          "endMs": 1800,
+          "startMs": 2179,
+          "endMs": 2414,
           "viseme": "wo",
           "text": "ผู"
         },
         {
-          "startMs": 1800,
-          "endMs": 1903,
+          "startMs": 2414,
+          "endMs": 2519,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 1903,
-          "endMs": 2133,
+          "startMs": 2519,
+          "endMs": 2754,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 2133,
-          "endMs": 2466,
+          "startMs": 2754,
+          "endMs": 3094,
           "viseme": "wo",
           "text": "วยตวยต"
         },
         {
-          "startMs": 2466,
-          "endMs": 3156,
+          "startMs": 3094,
+          "endMs": 3799,
           "viseme": "aa",
           "text": "อบคถามของ"
         },
         {
-          "startMs": 3156,
-          "endMs": 3259,
+          "startMs": 3799,
+          "endMs": 3904,
           "viseme": "s",
           "text": "ศูน"
         },
         {
-          "startMs": 3259,
-          "endMs": 3489,
+          "startMs": 3904,
+          "endMs": 4139,
           "viseme": "wo",
           "text": "ศูน"
         },
         {
-          "startMs": 3489,
-          "endMs": 3719,
+          "startMs": 4139,
+          "endMs": 4374,
           "viseme": "aa",
           "text": "ย"
         },
         {
-          "startMs": 3719,
-          "endMs": 4179,
+          "startMs": 4374,
+          "endMs": 4609,
           "viseme": "ee",
-          "text": "DITCและค"
+          "text": "ดิ"
         },
         {
-          "startMs": 4179,
-          "endMs": 4409,
+          "startMs": 4609,
+          "endMs": 4844,
+          "viseme": "aa",
+          "text": "ด"
+        },
+        {
+          "startMs": 4844,
+          "endMs": 4949,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 4949,
+          "endMs": 5419,
+          "viseme": "ee",
+          "text": "ซีและค"
+        },
+        {
+          "startMs": 5419,
+          "endMs": 5654,
           "viseme": "aa",
           "text": "ณะ"
         },
         {
-          "startMs": 4409,
-          "endMs": 4639,
+          "startMs": 5654,
+          "endMs": 5889,
           "viseme": "ee",
           "text": "แคมท์"
         },
         {
-          "startMs": 4639,
-          "endMs": 4742,
+          "startMs": 5889,
+          "endMs": 5994,
           "viseme": "mbp",
           "text": "มหาว"
         },
         {
-          "startMs": 4742,
-          "endMs": 4972,
+          "startMs": 5994,
+          "endMs": 6229,
           "viseme": "wo",
           "text": "มหาว"
         },
         {
-          "startMs": 4972,
-          "endMs": 5432,
+          "startMs": 6229,
+          "endMs": 6699,
           "viseme": "aa",
           "text": "ทยาลย"
         },
         {
-          "startMs": 5432,
-          "endMs": 5535,
+          "startMs": 6699,
+          "endMs": 6804,
           "viseme": "s",
           "text": "เชีย"
         },
         {
-          "startMs": 5535,
-          "endMs": 5765,
+          "startMs": 6804,
+          "endMs": 7039,
           "viseme": "ee",
           "text": "เชีย"
         },
         {
-          "startMs": 5765,
-          "endMs": 6455,
+          "startMs": 7039,
+          "endMs": 7744,
           "viseme": "aa",
           "text": "งใหมนะ"
         },
         {
-          "startMs": 6455,
-          "endMs": 6558,
+          "startMs": 7744,
+          "endMs": 7849,
           "viseme": "mbp",
           "text": "มีอ"
         },
         {
-          "startMs": 6558,
-          "endMs": 6788,
+          "startMs": 7849,
+          "endMs": 8084,
           "viseme": "ee",
           "text": "มีอ"
         },
         {
-          "startMs": 6788,
-          "endMs": 7248,
+          "startMs": 8084,
+          "endMs": 8554,
           "viseme": "aa",
           "text": "ไรให"
         },
         {
-          "startMs": 7248,
-          "endMs": 7351,
+          "startMs": 8554,
+          "endMs": 8659,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 7351,
-          "endMs": 7581,
+          "startMs": 8659,
+          "endMs": 8894,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 7581,
-          "endMs": 7914,
+          "startMs": 8894,
+          "endMs": 9234,
           "viseme": "wo",
           "text": "วยมวยม"
         },
         {
-          "startMs": 7914,
-          "endMs": 8144,
+          "startMs": 9234,
+          "endMs": 9469,
           "viseme": "aa",
           "text": "ย"
         },
         {
-          "startMs": 8144,
-          "endMs": 8270,
+          "startMs": 9469,
+          "endMs": 9600,
           "viseme": "idle",
           "text": "?",
           "pose": "sil"
@@ -1004,248 +1058,272 @@
     {
       "id": "06",
       "file": "greeting-06.wav",
-      "text": "หวัดดีคร้าบ! ผม DITC CAT นะครับ มีอะไรให้ช่วยเกี่ยวกับแคมท์ หรือดิ๊ดซี บอกมาได้เลย! หรือจะคุยเล่นก็ได้นะ วันนี้เป็นไงบ้าง?",
-      "durationMs": 10031,
+      "text": "หวัดดีคร้าบ! ผมดิ๊ด-ซี แคทนะครับ มีอะไรให้ช่วยเกี่ยวกับแคมท์ หรือดิ๊ด-ซี บอกมาได้เลย! หรือจะคุยเล่นก็ได้นะ วันนี้เป็นไงบ้าง?",
+      "durationMs": 8650,
       "timeline": [
         {
           "startMs": 0,
-          "endMs": 231,
+          "endMs": 191,
           "viseme": "wo",
           "text": "หวัด"
         },
         {
-          "startMs": 231,
-          "endMs": 462,
+          "startMs": 191,
+          "endMs": 382,
           "viseme": "ee",
           "text": "ดีค"
         },
         {
-          "startMs": 462,
-          "endMs": 693,
+          "startMs": 382,
+          "endMs": 573,
           "viseme": "aa",
           "text": "ร"
         },
         {
-          "startMs": 693,
-          "endMs": 797,
+          "startMs": 573,
+          "endMs": 659,
           "viseme": "mbp",
           "text": "บ"
         },
         {
-          "startMs": 797,
-          "endMs": 1028,
+          "startMs": 659,
+          "endMs": 850,
           "viseme": "aa",
           "text": "บ"
         },
         {
-          "startMs": 1028,
-          "endMs": 1140,
+          "startMs": 850,
+          "endMs": 942,
           "viseme": "idle",
           "text": "!",
           "pose": "sil"
         },
         {
-          "startMs": 1140,
-          "endMs": 1244,
+          "startMs": 942,
+          "endMs": 1028,
           "viseme": "mbp",
-          "text": "ผม"
+          "text": "ผมด"
         },
         {
-          "startMs": 1244,
-          "endMs": 1475,
+          "startMs": 1028,
+          "endMs": 1410,
           "viseme": "aa",
-          "text": "ผม"
+          "text": "ผมดด"
         },
         {
-          "startMs": 1475,
-          "endMs": 1706,
+          "startMs": 1410,
+          "endMs": 1496,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 1496,
+          "endMs": 1878,
           "viseme": "ee",
-          "text": "DITC"
+          "text": "ซีแคทน"
         },
         {
-          "startMs": 1706,
-          "endMs": 2399,
+          "startMs": 1878,
+          "endMs": 2069,
           "viseme": "aa",
-          "text": "CATนะครับ"
+          "text": "ครับ"
         },
         {
-          "startMs": 2399,
-          "endMs": 2503,
+          "startMs": 2069,
+          "endMs": 2155,
           "viseme": "mbp",
           "text": "มีอ"
         },
         {
-          "startMs": 2503,
-          "endMs": 2734,
+          "startMs": 2155,
+          "endMs": 2346,
           "viseme": "ee",
           "text": "มีอ"
         },
         {
-          "startMs": 2734,
-          "endMs": 3196,
+          "startMs": 2346,
+          "endMs": 2728,
           "viseme": "aa",
           "text": "ไรให"
         },
         {
-          "startMs": 3196,
-          "endMs": 3300,
+          "startMs": 2728,
+          "endMs": 2814,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 3300,
-          "endMs": 3531,
+          "startMs": 2814,
+          "endMs": 3005,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 3531,
-          "endMs": 3866,
+          "startMs": 3005,
+          "endMs": 3282,
           "viseme": "wo",
           "text": "วยวย"
         },
         {
-          "startMs": 3866,
-          "endMs": 4097,
+          "startMs": 3282,
+          "endMs": 3473,
           "viseme": "ee",
           "text": "เกี"
         },
         {
-          "startMs": 4097,
-          "endMs": 4328,
+          "startMs": 3473,
+          "endMs": 3664,
           "viseme": "wo",
           "text": "ยวก"
         },
         {
-          "startMs": 4328,
-          "endMs": 4432,
+          "startMs": 3664,
+          "endMs": 3750,
           "viseme": "mbp",
           "text": "บ"
         },
         {
-          "startMs": 4432,
-          "endMs": 4663,
+          "startMs": 3750,
+          "endMs": 3941,
           "viseme": "aa",
           "text": "บ"
         },
         {
-          "startMs": 4663,
-          "endMs": 4894,
+          "startMs": 3941,
+          "endMs": 4132,
           "viseme": "ee",
           "text": "แคมท์"
         },
         {
-          "startMs": 4894,
-          "endMs": 5125,
+          "startMs": 4132,
+          "endMs": 4323,
           "viseme": "aa",
           "text": "หรือ"
         },
         {
-          "startMs": 5125,
-          "endMs": 5587,
+          "startMs": 4323,
+          "endMs": 4514,
           "viseme": "ee",
-          "text": "ดิดซี"
+          "text": "ดิ"
         },
         {
-          "startMs": 5587,
-          "endMs": 5691,
+          "startMs": 4514,
+          "endMs": 4705,
+          "viseme": "aa",
+          "text": "ด"
+        },
+        {
+          "startMs": 4705,
+          "endMs": 4791,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 4791,
+          "endMs": 4982,
+          "viseme": "ee",
+          "text": "ซี"
+        },
+        {
+          "startMs": 4982,
+          "endMs": 5068,
           "viseme": "mbp",
           "text": "บอก"
         },
         {
-          "startMs": 5691,
-          "endMs": 5922,
+          "startMs": 5068,
+          "endMs": 5259,
           "viseme": "aa",
           "text": "บอก"
         },
         {
-          "startMs": 5922,
-          "endMs": 6026,
+          "startMs": 5259,
+          "endMs": 5345,
           "viseme": "mbp",
           "text": "มา"
         },
         {
-          "startMs": 6026,
-          "endMs": 6488,
+          "startMs": 5345,
+          "endMs": 5727,
           "viseme": "aa",
           "text": "มาได"
         },
         {
-          "startMs": 6488,
-          "endMs": 6719,
+          "startMs": 5727,
+          "endMs": 5918,
           "viseme": "ee",
           "text": "เลย"
         },
         {
-          "startMs": 6719,
-          "endMs": 6831,
+          "startMs": 5918,
+          "endMs": 6010,
           "viseme": "idle",
           "text": "!",
           "pose": "sil"
         },
         {
-          "startMs": 6831,
-          "endMs": 7062,
+          "startMs": 6010,
+          "endMs": 6201,
           "viseme": "aa",
           "text": "หรือ"
         },
         {
-          "startMs": 7062,
-          "endMs": 7166,
+          "startMs": 6201,
+          "endMs": 6287,
           "viseme": "s",
           "text": "จะค"
         },
         {
-          "startMs": 7166,
-          "endMs": 7628,
+          "startMs": 6287,
+          "endMs": 6669,
           "viseme": "aa",
           "text": "จะคย"
         },
         {
-          "startMs": 7628,
-          "endMs": 7859,
+          "startMs": 6669,
+          "endMs": 6860,
           "viseme": "ee",
           "text": "เล"
         },
         {
-          "startMs": 7859,
-          "endMs": 8552,
+          "startMs": 6860,
+          "endMs": 7433,
           "viseme": "aa",
           "text": "นก็ไดนะ"
         },
         {
-          "startMs": 8552,
-          "endMs": 8887,
+          "startMs": 7433,
+          "endMs": 7710,
           "viseme": "wo",
           "text": "วันวัน"
         },
         {
-          "startMs": 8887,
-          "endMs": 9118,
+          "startMs": 7710,
+          "endMs": 7901,
           "viseme": "ee",
           "text": "นี"
         },
         {
-          "startMs": 9118,
-          "endMs": 9222,
+          "startMs": 7901,
+          "endMs": 7987,
           "viseme": "mbp",
           "text": "เป็น"
         },
         {
-          "startMs": 9222,
-          "endMs": 9453,
+          "startMs": 7987,
+          "endMs": 8178,
           "viseme": "ee",
           "text": "เป็น"
         },
         {
-          "startMs": 9453,
-          "endMs": 9915,
+          "startMs": 8178,
+          "endMs": 8560,
           "viseme": "aa",
           "text": "ไงบง"
         },
         {
-          "startMs": 9915,
-          "endMs": 10031,
+          "startMs": 8560,
+          "endMs": 8650,
           "viseme": "idle",
           "text": "?",
           "pose": "sil"
@@ -1255,272 +1333,308 @@
     {
       "id": "07",
       "file": "greeting-07.wav",
-      "text": "สวัสดีจ้ะ! ดิ๊ดซี่แคท ผู้ช่วยตอบคำถามสุดน่ารักของศูนย์ดิ๊ดซี่ และคณะแคมท์ มาแล้วจ้ะ อยากรู้เรื่องอะไรบอกได้เลยนะจ๊ะ! ยินดีช่วยสุด ๆ เลย มีอะไรให้รับใช้ไหมเอ่ย?",
-      "durationMs": 13761,
+      "text": "สวัสดีจ้ะ! ดิ๊ด-ซี แคท ผู้ช่วยตอบคำถามสุดน่ารักของศูนย์ดิ๊ด-ซี และคณะแคมท์ มาแล้วจ้ะ อยากรู้เรื่องอะไรบอกได้เลยนะจ๊ะ! ยินดีช่วยสุด ๆ เลย มีอะไรให้รับใช้ไหมเอ่ย?",
+      "durationMs": 14421,
       "timeline": [
         {
           "startMs": 0,
-          "endMs": 115,
+          "endMs": 114,
           "viseme": "s",
           "text": "สวัส"
         },
         {
-          "startMs": 115,
-          "endMs": 371,
+          "startMs": 114,
+          "endMs": 368,
           "viseme": "wo",
           "text": "สวัส"
         },
         {
-          "startMs": 371,
-          "endMs": 627,
+          "startMs": 368,
+          "endMs": 622,
           "viseme": "ee",
           "text": "ดีจ"
         },
         {
-          "startMs": 627,
-          "endMs": 750,
+          "startMs": 622,
+          "endMs": 745,
           "viseme": "idle",
           "text": "!",
           "pose": "sil"
         },
         {
-          "startMs": 750,
-          "endMs": 1518,
+          "startMs": 745,
+          "endMs": 999,
           "viseme": "ee",
-          "text": "ดิดซีแคท"
+          "text": "ดิ"
         },
         {
-          "startMs": 1518,
-          "endMs": 1633,
+          "startMs": 999,
+          "endMs": 1253,
+          "viseme": "aa",
+          "text": "ด"
+        },
+        {
+          "startMs": 1253,
+          "endMs": 1367,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 1367,
+          "endMs": 1875,
+          "viseme": "ee",
+          "text": "ซีแคท"
+        },
+        {
+          "startMs": 1875,
+          "endMs": 1989,
           "viseme": "mbp",
           "text": "ผู"
         },
         {
-          "startMs": 1633,
-          "endMs": 1889,
+          "startMs": 1989,
+          "endMs": 2243,
           "viseme": "wo",
           "text": "ผู"
         },
         {
-          "startMs": 1889,
-          "endMs": 2004,
+          "startMs": 2243,
+          "endMs": 2357,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 2004,
-          "endMs": 2260,
+          "startMs": 2357,
+          "endMs": 2611,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 2260,
-          "endMs": 2631,
+          "startMs": 2611,
+          "endMs": 2979,
           "viseme": "wo",
           "text": "วยตวยต"
         },
         {
-          "startMs": 2631,
-          "endMs": 3143,
+          "startMs": 2979,
+          "endMs": 3487,
           "viseme": "aa",
           "text": "อบคถาม"
         },
         {
-          "startMs": 3143,
-          "endMs": 3258,
+          "startMs": 3487,
+          "endMs": 3601,
           "viseme": "s",
           "text": "สุด"
         },
         {
-          "startMs": 3258,
-          "endMs": 3514,
+          "startMs": 3601,
+          "endMs": 3855,
           "viseme": "wo",
           "text": "สุด"
         },
         {
-          "startMs": 3514,
-          "endMs": 4282,
+          "startMs": 3855,
+          "endMs": 4617,
           "viseme": "aa",
           "text": "นรักของ"
         },
         {
-          "startMs": 4282,
-          "endMs": 4397,
+          "startMs": 4617,
+          "endMs": 4731,
           "viseme": "s",
           "text": "ศูน"
         },
         {
-          "startMs": 4397,
-          "endMs": 4653,
+          "startMs": 4731,
+          "endMs": 4985,
           "viseme": "wo",
           "text": "ศูน"
         },
         {
-          "startMs": 4653,
-          "endMs": 4909,
+          "startMs": 4985,
+          "endMs": 5239,
           "viseme": "aa",
           "text": "ย"
         },
         {
-          "startMs": 4909,
-          "endMs": 5677,
+          "startMs": 5239,
+          "endMs": 5493,
           "viseme": "ee",
-          "text": "ดิดซีและค"
+          "text": "ดิ"
         },
         {
-          "startMs": 5677,
-          "endMs": 5933,
+          "startMs": 5493,
+          "endMs": 5747,
+          "viseme": "aa",
+          "text": "ด"
+        },
+        {
+          "startMs": 5747,
+          "endMs": 5861,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 5861,
+          "endMs": 6369,
+          "viseme": "ee",
+          "text": "ซีและค"
+        },
+        {
+          "startMs": 6369,
+          "endMs": 6623,
           "viseme": "aa",
           "text": "ณะ"
         },
         {
-          "startMs": 5933,
-          "endMs": 6189,
+          "startMs": 6623,
+          "endMs": 6877,
           "viseme": "ee",
           "text": "แคมท์"
         },
         {
-          "startMs": 6189,
-          "endMs": 6304,
+          "startMs": 6877,
+          "endMs": 6991,
           "viseme": "mbp",
           "text": "มา"
         },
         {
-          "startMs": 6304,
-          "endMs": 6560,
+          "startMs": 6991,
+          "endMs": 7245,
           "viseme": "aa",
           "text": "มา"
         },
         {
-          "startMs": 6560,
-          "endMs": 6816,
+          "startMs": 7245,
+          "endMs": 7499,
           "viseme": "ee",
           "text": "แล"
         },
         {
-          "startMs": 6816,
-          "endMs": 7187,
+          "startMs": 7499,
+          "endMs": 7867,
           "viseme": "wo",
           "text": "วจวจ"
         },
         {
-          "startMs": 7187,
-          "endMs": 7443,
+          "startMs": 7867,
+          "endMs": 8121,
           "viseme": "aa",
           "text": "อยาก"
         },
         {
-          "startMs": 7443,
-          "endMs": 7699,
+          "startMs": 8121,
+          "endMs": 8375,
           "viseme": "wo",
           "text": "รู"
         },
         {
-          "startMs": 7699,
-          "endMs": 7955,
+          "startMs": 8375,
+          "endMs": 8629,
           "viseme": "ee",
           "text": "เรื"
         },
         {
-          "startMs": 7955,
-          "endMs": 8979,
+          "startMs": 8629,
+          "endMs": 9645,
           "viseme": "aa",
           "text": "องอไรบอกได"
         },
         {
-          "startMs": 8979,
-          "endMs": 9235,
+          "startMs": 9645,
+          "endMs": 9899,
           "viseme": "ee",
           "text": "เลยน"
         },
         {
-          "startMs": 9235,
-          "endMs": 9350,
+          "startMs": 9899,
+          "endMs": 10013,
           "viseme": "s",
           "text": "จ"
         },
         {
-          "startMs": 9350,
-          "endMs": 9606,
+          "startMs": 10013,
+          "endMs": 10267,
           "viseme": "aa",
           "text": "จ"
         },
         {
-          "startMs": 9606,
-          "endMs": 9729,
+          "startMs": 10267,
+          "endMs": 10390,
           "viseme": "idle",
           "text": "!",
           "pose": "sil"
         },
         {
-          "startMs": 9729,
-          "endMs": 10241,
+          "startMs": 10390,
+          "endMs": 10898,
           "viseme": "ee",
           "text": "ยินดีช"
         },
         {
-          "startMs": 10241,
-          "endMs": 10612,
+          "startMs": 10898,
+          "endMs": 11266,
           "viseme": "wo",
           "text": "วยสวยส"
         },
         {
-          "startMs": 10612,
-          "endMs": 11124,
+          "startMs": 11266,
+          "endMs": 11774,
           "viseme": "aa",
           "text": "ดๆ"
         },
         {
-          "startMs": 11124,
-          "endMs": 11380,
+          "startMs": 11774,
+          "endMs": 12028,
           "viseme": "ee",
           "text": "เลย"
         },
         {
-          "startMs": 11380,
-          "endMs": 11495,
+          "startMs": 12028,
+          "endMs": 12142,
           "viseme": "mbp",
           "text": "มีอ"
         },
         {
-          "startMs": 11495,
-          "endMs": 11751,
+          "startMs": 12142,
+          "endMs": 12396,
           "viseme": "ee",
           "text": "มีอ"
         },
         {
-          "startMs": 11751,
-          "endMs": 12519,
+          "startMs": 12396,
+          "endMs": 13158,
           "viseme": "aa",
           "text": "ไรใหรับ"
         },
         {
-          "startMs": 12519,
-          "endMs": 12634,
+          "startMs": 13158,
+          "endMs": 13272,
           "viseme": "s",
           "text": "ใช"
         },
         {
-          "startMs": 12634,
-          "endMs": 13146,
+          "startMs": 13272,
+          "endMs": 13780,
           "viseme": "aa",
           "text": "ใชไหม"
         },
         {
-          "startMs": 13146,
-          "endMs": 13402,
+          "startMs": 13780,
+          "endMs": 14034,
           "viseme": "oh",
           "text": "เอ"
         },
         {
-          "startMs": 13402,
-          "endMs": 13658,
+          "startMs": 14034,
+          "endMs": 14288,
           "viseme": "aa",
           "text": "ย"
         },
         {
-          "startMs": 13658,
-          "endMs": 13761,
+          "startMs": 14288,
+          "endMs": 14421,
           "viseme": "idle",
           "text": "?",
           "pose": "sil"
@@ -1530,8 +1644,8 @@
     {
       "id": "08",
       "file": "greeting-08.wav",
-      "text": "เมี๊ยว! สวัสดีครับ ผมดิตต์ซีแคท ผู้ช่วยประจำศูนย์ดิ๊ดดี้ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่ครับ อยากให้ช่วยหาข้อมูลอะไรเกี่ยวกับคณะหรือศูนย์นี้ บอกได้เลยนะครับ หรือจะคุยเล่นกันก็ได้ครับ วันนี้มีอะไรให้ช่วยไหมครับ?",
-      "durationMs": 16321,
+      "text": "เมี๊ยว! สวัสดีครับ ผมดิ๊ด-ซี แคท ผู้ช่วยประจำศูนย์ดิ๊ด-ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่ครับ อยากให้ช่วยหาข้อมูลอะไรเกี่ยวกับคณะหรือศูนย์นี้ บอกได้เลยนะครับ หรือจะคุยเล่นกันก็ได้ครับ วันนี้มีอะไรให้ช่วยไหมครับ?",
+      "durationMs": 16280,
       "timeline": [
         {
           "startMs": 0,
@@ -1592,7 +1706,7 @@
           "startMs": 1495,
           "endMs": 1933,
           "viseme": "aa",
-          "text": "ผมดตต"
+          "text": "ผมดด"
         },
         {
           "startMs": 1933,
@@ -1662,9 +1776,15 @@
         },
         {
           "startMs": 4175,
-          "endMs": 4613,
+          "endMs": 4394,
           "viseme": "ee",
-          "text": "ดิดดี"
+          "text": "ดิ"
+        },
+        {
+          "startMs": 4394,
+          "endMs": 4613,
+          "viseme": "aa",
+          "text": "ด"
         },
         {
           "startMs": 4613,
@@ -1914,7 +2034,7 @@
         },
         {
           "startMs": 16180,
-          "endMs": 16321,
+          "endMs": 16280,
           "viseme": "idle",
           "text": "?",
           "pose": "sil"
@@ -2471,222 +2591,264 @@
     {
       "id": "11",
       "file": "greeting-11.wav",
-      "text": "สวัสดีเจ๊า ดิ๊ดซีแคทเน่อเจ๊า มีอะหยังหื้อจ่วย ถามได้กู้เรื่องเลยเจ๊า วันนี้อยากฮู้เรื่องอะหยังเกี่ยวกับแคมท์ หรือดิ๊ดซีพ่องเจ๊า?",
-      "durationMs": 10501,
+      "text": "สวัสดีเจ๊า ดิ๊ด-ซี แคทเน่อเจ๊า มีอะหยังหื้อจ่วย ถามได้กู้เรื่องเลยเจ๊า วันนี้อยากฮู้เรื่องอะหยังเกี่ยวกับแคมท์ หรือดิ๊ด-ซี พ่องเจ๊า?",
+      "durationMs": 11180,
       "timeline": [
         {
           "startMs": 0,
-          "endMs": 113,
+          "endMs": 109,
           "viseme": "s",
           "text": "สวัส"
         },
         {
-          "startMs": 113,
-          "endMs": 366,
+          "startMs": 109,
+          "endMs": 353,
           "viseme": "wo",
           "text": "สวัส"
         },
         {
-          "startMs": 366,
-          "endMs": 619,
+          "startMs": 353,
+          "endMs": 597,
           "viseme": "ee",
           "text": "ดี"
         },
         {
-          "startMs": 619,
-          "endMs": 732,
+          "startMs": 597,
+          "endMs": 706,
           "viseme": "s",
           "text": "เจ"
         },
         {
-          "startMs": 732,
-          "endMs": 1997,
+          "startMs": 706,
+          "endMs": 1194,
           "viseme": "ee",
-          "text": "เจดิดซีแคทเน"
+          "text": "เจดิ"
         },
         {
-          "startMs": 1997,
-          "endMs": 2250,
+          "startMs": 1194,
+          "endMs": 1438,
+          "viseme": "aa",
+          "text": "ด"
+        },
+        {
+          "startMs": 1438,
+          "endMs": 1547,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 1547,
+          "endMs": 2279,
+          "viseme": "ee",
+          "text": "ซีแคทเน"
+        },
+        {
+          "startMs": 2279,
+          "endMs": 2523,
           "viseme": "aa",
           "text": "อ"
         },
         {
-          "startMs": 2250,
-          "endMs": 2363,
+          "startMs": 2523,
+          "endMs": 2632,
           "viseme": "s",
           "text": "เจ"
         },
         {
-          "startMs": 2363,
-          "endMs": 2616,
+          "startMs": 2632,
+          "endMs": 2876,
           "viseme": "ee",
           "text": "เจ"
         },
         {
-          "startMs": 2616,
-          "endMs": 2729,
+          "startMs": 2876,
+          "endMs": 2985,
           "viseme": "mbp",
           "text": "มีอ"
         },
         {
-          "startMs": 2729,
-          "endMs": 2982,
+          "startMs": 2985,
+          "endMs": 3229,
           "viseme": "ee",
           "text": "มีอ"
         },
         {
-          "startMs": 2982,
-          "endMs": 3741,
+          "startMs": 3229,
+          "endMs": 3961,
           "viseme": "aa",
           "text": "หยังหือจ"
         },
         {
-          "startMs": 3741,
-          "endMs": 4107,
+          "startMs": 3961,
+          "endMs": 4314,
           "viseme": "wo",
           "text": "วยวย"
         },
         {
-          "startMs": 4107,
-          "endMs": 4613,
+          "startMs": 4314,
+          "endMs": 4802,
           "viseme": "aa",
           "text": "ถามได"
         },
         {
-          "startMs": 4613,
-          "endMs": 4866,
+          "startMs": 4802,
+          "endMs": 5046,
           "viseme": "wo",
           "text": "กู"
         },
         {
-          "startMs": 4866,
-          "endMs": 5119,
+          "startMs": 5046,
+          "endMs": 5290,
           "viseme": "ee",
           "text": "เรื"
         },
         {
-          "startMs": 5119,
-          "endMs": 5372,
+          "startMs": 5290,
+          "endMs": 5534,
           "viseme": "aa",
           "text": "อง"
         },
         {
-          "startMs": 5372,
-          "endMs": 5625,
+          "startMs": 5534,
+          "endMs": 5778,
           "viseme": "ee",
           "text": "เลย"
         },
         {
-          "startMs": 5625,
-          "endMs": 5738,
+          "startMs": 5778,
+          "endMs": 5887,
           "viseme": "s",
           "text": "เจ"
         },
         {
-          "startMs": 5738,
-          "endMs": 5991,
+          "startMs": 5887,
+          "endMs": 6131,
           "viseme": "ee",
           "text": "เจ"
         },
         {
-          "startMs": 5991,
-          "endMs": 6357,
+          "startMs": 6131,
+          "endMs": 6484,
           "viseme": "wo",
           "text": "วันวัน"
         },
         {
-          "startMs": 6357,
-          "endMs": 6610,
+          "startMs": 6484,
+          "endMs": 6728,
           "viseme": "ee",
           "text": "นี"
         },
         {
-          "startMs": 6610,
-          "endMs": 6863,
+          "startMs": 6728,
+          "endMs": 6972,
           "viseme": "aa",
           "text": "อยาก"
         },
         {
-          "startMs": 6863,
-          "endMs": 7116,
+          "startMs": 6972,
+          "endMs": 7216,
           "viseme": "wo",
           "text": "ฮู"
         },
         {
-          "startMs": 7116,
-          "endMs": 7369,
+          "startMs": 7216,
+          "endMs": 7460,
           "viseme": "ee",
           "text": "เรื"
         },
         {
-          "startMs": 7369,
-          "endMs": 7875,
+          "startMs": 7460,
+          "endMs": 7948,
           "viseme": "aa",
           "text": "องอหยัง"
         },
         {
-          "startMs": 7875,
-          "endMs": 8128,
+          "startMs": 7948,
+          "endMs": 8192,
           "viseme": "ee",
           "text": "เกี"
         },
         {
-          "startMs": 8128,
-          "endMs": 8381,
+          "startMs": 8192,
+          "endMs": 8436,
           "viseme": "wo",
           "text": "ยวก"
         },
         {
-          "startMs": 8381,
-          "endMs": 8494,
+          "startMs": 8436,
+          "endMs": 8545,
           "viseme": "mbp",
           "text": "บ"
         },
         {
-          "startMs": 8494,
-          "endMs": 8747,
+          "startMs": 8545,
+          "endMs": 8789,
           "viseme": "aa",
           "text": "บ"
         },
         {
-          "startMs": 8747,
-          "endMs": 9000,
+          "startMs": 8789,
+          "endMs": 9033,
           "viseme": "ee",
           "text": "แคมท์"
         },
         {
-          "startMs": 9000,
-          "endMs": 9253,
+          "startMs": 9033,
+          "endMs": 9277,
           "viseme": "aa",
           "text": "หรือ"
         },
         {
-          "startMs": 9253,
-          "endMs": 9759,
+          "startMs": 9277,
+          "endMs": 9521,
           "viseme": "ee",
-          "text": "ดิดซีพ"
+          "text": "ดิ"
         },
         {
-          "startMs": 9759,
-          "endMs": 10012,
+          "startMs": 9521,
+          "endMs": 9765,
           "viseme": "aa",
-          "text": "อง"
+          "text": "ด"
         },
         {
-          "startMs": 10012,
-          "endMs": 10125,
+          "startMs": 9765,
+          "endMs": 9874,
+          "viseme": "s",
+          "text": "ซี"
+        },
+        {
+          "startMs": 9874,
+          "endMs": 10118,
+          "viseme": "ee",
+          "text": "ซี"
+        },
+        {
+          "startMs": 10118,
+          "endMs": 10227,
+          "viseme": "mbp",
+          "text": "พ"
+        },
+        {
+          "startMs": 10227,
+          "endMs": 10715,
+          "viseme": "aa",
+          "text": "พอง"
+        },
+        {
+          "startMs": 10715,
+          "endMs": 10824,
           "viseme": "s",
           "text": "เจ"
         },
         {
-          "startMs": 10125,
-          "endMs": 10378,
+          "startMs": 10824,
+          "endMs": 11068,
           "viseme": "ee",
           "text": "เจ"
         },
         {
-          "startMs": 10378,
-          "endMs": 10501,
+          "startMs": 11068,
+          "endMs": 11180,
           "viseme": "idle",
           "text": "?",
           "pose": "sil"
