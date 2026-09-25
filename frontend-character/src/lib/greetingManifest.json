@@ -224,8 +224,8 @@
     {
       "id": "02",
       "file": "greeting-02.wav",
-      "text": "สวัสดีครับ ผมดิ๊ด-ซี แคทครับ เป็นผู้ช่วยตอบคำถามของศูนย์ดิ๊ด-ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่ครับ มีอะไรให้ช่วย ถามได้เลยนะครับ",
-      "durationMs": 11310,
+      "text": "สวัสดีครับ ผมดิ๊ด ซี แคทครับ เป็นผู้ช่วยตอบคำถามของศูนย์ดิ๊ด ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่ครับ มีอะไรให้ช่วย ถามได้เลยนะครับ",
+      "durationMs": 11330,
       "timeline": [
         {
           "startMs": 0,
@@ -469,7 +469,7 @@
         },
         {
           "startMs": 11068,
-          "endMs": 11310,
+          "endMs": 11330,
           "viseme": "aa",
           "text": "ครับ"
         }
@@ -814,241 +814,241 @@
     {
       "id": "05",
       "file": "greeting-05.wav",
-      "text": "สวัสดีจ้ะ! ฉันดิ๊ด-ซี แคท ผู้ช่วยตอบคำถามของศูนย์ดิ๊ด-ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่นะ มีอะไรให้ช่วยมั้ย?",
-      "durationMs": 9600,
+      "text": "สวัสดีจ้ะ! ฉันดิ๊ด ซี แคท ผู้ช่วยตอบคำถามของศูนย์ดิ๊ด ซี และคณะแคมท์ มหาวิทยาลัยเชียงใหม่นะ มีอะไรให้ช่วยมั้ย?",
+      "durationMs": 9150,
       "timeline": [
         {
           "startMs": 0,
-          "endMs": 105,
+          "endMs": 101,
           "viseme": "s",
           "text": "สวัส"
         },
         {
-          "startMs": 105,
-          "endMs": 340,
+          "startMs": 101,
+          "endMs": 325,
           "viseme": "wo",
           "text": "สวัส"
         },
         {
-          "startMs": 340,
-          "endMs": 575,
+          "startMs": 325,
+          "endMs": 549,
           "viseme": "ee",
           "text": "ดีจ"
         },
         {
-          "startMs": 575,
-          "endMs": 689,
+          "startMs": 549,
+          "endMs": 657,
           "viseme": "idle",
           "text": "!",
           "pose": "sil"
         },
         {
-          "startMs": 689,
-          "endMs": 794,
+          "startMs": 657,
+          "endMs": 758,
           "viseme": "s",
           "text": "ฉัน"
         },
         {
-          "startMs": 794,
-          "endMs": 1029,
+          "startMs": 758,
+          "endMs": 982,
           "viseme": "aa",
           "text": "ฉัน"
         },
         {
-          "startMs": 1029,
-          "endMs": 1264,
+          "startMs": 982,
+          "endMs": 1206,
           "viseme": "ee",
           "text": "ดิ"
         },
         {
-          "startMs": 1264,
-          "endMs": 1499,
+          "startMs": 1206,
+          "endMs": 1430,
           "viseme": "aa",
           "text": "ด"
         },
         {
-          "startMs": 1499,
-          "endMs": 1604,
+          "startMs": 1430,
+          "endMs": 1531,
           "viseme": "s",
           "text": "ซี"
         },
         {
-          "startMs": 1604,
-          "endMs": 2074,
+          "startMs": 1531,
+          "endMs": 1979,
           "viseme": "ee",
           "text": "ซีแคท"
         },
         {
-          "startMs": 2074,
-          "endMs": 2179,
+          "startMs": 1979,
+          "endMs": 2080,
           "viseme": "mbp",
           "text": "ผู"
         },
         {
-          "startMs": 2179,
-          "endMs": 2414,
+          "startMs": 2080,
+          "endMs": 2304,
           "viseme": "wo",
           "text": "ผู"
         },
         {
-          "startMs": 2414,
-          "endMs": 2519,
+          "startMs": 2304,
+          "endMs": 2405,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 2519,
-          "endMs": 2754,
+          "startMs": 2405,
+          "endMs": 2629,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 2754,
-          "endMs": 3094,
+          "startMs": 2629,
+          "endMs": 2954,
           "viseme": "wo",
           "text": "วยตวยต"
         },
         {
-          "startMs": 3094,
-          "endMs": 3799,
+          "startMs": 2954,
+          "endMs": 3626,
           "viseme": "aa",
           "text": "อบคถามของ"
         },
         {
-          "startMs": 3799,
-          "endMs": 3904,
+          "startMs": 3626,
+          "endMs": 3727,
           "viseme": "s",
           "text": "ศูน"
         },
         {
-          "startMs": 3904,
-          "endMs": 4139,
+          "startMs": 3727,
+          "endMs": 3951,
           "viseme": "wo",
           "text": "ศูน"
         },
         {
-          "startMs": 4139,
-          "endMs": 4374,
+          "startMs": 3951,
+          "endMs": 4175,
           "viseme": "aa",
           "text": "ย"
         },
         {
-          "startMs": 4374,
-          "endMs": 4609,
+          "startMs": 4175,
+          "endMs": 4399,
           "viseme": "ee",
           "text": "ดิ"
         },
         {
-          "startMs": 4609,
-          "endMs": 4844,
+          "startMs": 4399,
+          "endMs": 4623,
           "viseme": "aa",
           "text": "ด"
         },
         {
-          "startMs": 4844,
-          "endMs": 4949,
+          "startMs": 4623,
+          "endMs": 4724,
           "viseme": "s",
           "text": "ซี"
         },
         {
-          "startMs": 4949,
-          "endMs": 5419,
+          "startMs": 4724,
+          "endMs": 5172,
           "viseme": "ee",
           "text": "ซีและค"
         },
         {
-          "startMs": 5419,
-          "endMs": 5654,
+          "startMs": 5172,
+          "endMs": 5396,
           "viseme": "aa",
           "text": "ณะ"
         },
         {
-          "startMs": 5654,
-          "endMs": 5889,
+          "startMs": 5396,
+          "endMs": 5620,
           "viseme": "ee",
           "text": "แคมท์"
         },
         {
-          "startMs": 5889,
-          "endMs": 5994,
+          "startMs": 5620,
+          "endMs": 5721,
           "viseme": "mbp",
           "text": "มหาว"
         },
         {
-          "startMs": 5994,
-          "endMs": 6229,
+          "startMs": 5721,
+          "endMs": 5945,
           "viseme": "wo",
           "text": "มหาว"
         },
         {
-          "startMs": 6229,
-          "endMs": 6699,
+          "startMs": 5945,
+          "endMs": 6393,
           "viseme": "aa",
           "text": "ทยาลย"
         },
         {
-          "startMs": 6699,
-          "endMs": 6804,
+          "startMs": 6393,
+          "endMs": 6494,
           "viseme": "s",
           "text": "เชีย"
         },
         {
-          "startMs": 6804,
-          "endMs": 7039,
+          "startMs": 6494,
+          "endMs": 6718,
           "viseme": "ee",
           "text": "เชีย"
         },
         {
-          "startMs": 7039,
-          "endMs": 7744,
+          "startMs": 6718,
+          "endMs": 7390,
           "viseme": "aa",
           "text": "งใหมนะ"
         },
         {
-          "startMs": 7744,
-          "endMs": 7849,
+          "startMs": 7390,
+          "endMs": 7491,
           "viseme": "mbp",
           "text": "มีอ"
         },
         {
-          "startMs": 7849,
-          "endMs": 8084,
+          "startMs": 7491,
+          "endMs": 7715,
           "viseme": "ee",
           "text": "มีอ"
         },
         {
-          "startMs": 8084,
-          "endMs": 8554,
+          "startMs": 7715,
+          "endMs": 8163,
           "viseme": "aa",
           "text": "ไรให"
         },
         {
-          "startMs": 8554,
-          "endMs": 8659,
+          "startMs": 8163,
+          "endMs": 8264,
           "viseme": "s",
           "text": "ช"
         },
         {
-          "startMs": 8659,
-          "endMs": 8894,
+          "startMs": 8264,
+          "endMs": 8488,
           "viseme": "aa",
           "text": "ช"
         },
         {
-          "startMs": 8894,
-          "endMs": 9234,
+          "startMs": 8488,
+          "endMs": 8813,
           "viseme": "wo",
           "text": "วยมวยม"
         },
         {
-          "startMs": 9234,
-          "endMs": 9469,
+          "startMs": 8813,
+          "endMs": 9037,
           "viseme": "aa",
           "text": "ย"
         },
         {
-          "startMs": 9469,
-          "endMs": 9600,
+          "startMs": 9037,
+          "endMs": 9150,
           "viseme": "idle",
           "text": "?",
           "pose": "sil"
