@@ -276,8 +276,9 @@ function ReportDocument({ stats }: { stats: ConversationStatsOut }) {
         </section>
 
         <div className="report-reading-note">
-          <strong>วิธีอ่านข้อมูล</strong>
+          <strong>วิธีอ่านข้อมูลและคำจำกัดความ</strong>
           <p>“จำนวนครั้งที่ติดแท็ก” อาจมากกว่าจำนวนบทสนทนา เพราะหนึ่งบทสนทนาสามารถเกี่ยวข้องกับหัวข้อได้มากกว่าหนึ่งหัวข้อ</p>
+          <p><b>ยังไม่จัดหมวด</b> คือบทสนทนาจริงที่ยังไม่มีแท็ก · <b>อื่น ๆ</b> คือจัดหมวดสำเร็จแต่ไม่ตรงกับหัวข้อที่มี · <b>เงียบ/ขยะ</b> คือพบการโต้ตอบแต่ไม่พบสัญญาณคำถามจริงและไม่นับรวมในจำนวนบทสนทนา</p>
         </div>
         <ReportFooter stats={stats} page={2} />
       </article>
@@ -434,6 +435,7 @@ const REPORT_STYLES = `
   .report-reading-note { margin-top: 16px; padding: 11px 13px; border-left: 3px solid #111827; border-radius: 0 7px 7px 0; background: #f3f4f6; }
   .report-reading-note strong { color: #1f2937; font-size: 8.5px; }
   .report-reading-note p { margin: 3px 0 0; color: #6b7280; font-size: 8px; line-height: 1.55; }
+  .report-reading-note b { color: #374151; font-weight: 700; }
   .report-loading, .report-error { width: min(620px, 90vw); margin: 80px auto; padding: 32px; border: 1px solid #e5e7eb; border-radius: 12px; background: white; color: #6b7280; font-size: .85rem; text-align: center; }
   .report-error { color: #b91c1c; }
   @page { size: A4 portrait; margin: 0; }

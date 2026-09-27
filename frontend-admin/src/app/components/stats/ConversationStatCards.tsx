@@ -1,12 +1,38 @@
-import type { ReactNode } from "react";
-import { MessageSquareText, HelpCircle, Tags, VolumeX, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
+import { MessageSquareText, HelpCircle, Tags, VolumeX, ArrowUpRight, ArrowDownRight, Info } from "lucide-react";
 import type { ConversationStatsOut } from "../../../lib/api";
+import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface ConversationStatCardsProps {
   stats: ConversationStatsOut;
   // null = โหลดช่วงก่อนหน้าไม่สำเร็จ หรือยังไม่มีค่า — การ์ดจะซ่อน delta แทนที่จะโชว์เลขมั่ว
   prevStats: ConversationStatsOut | null;
 }
+
+interface StatExplanation {
+  summary: string;
+  detail: string;
+  note: string;
+}
+
+const STAT_EXPLANATIONS: Record<"unclassified" | "other" | "noise", StatExplanation> = {
+  unclassified: {
+    summary: "บทสนทนาจริงที่ยังไม่มีแท็กหัวข้อ",
+    detail: "เกิดขึ้นขณะที่ AI กำลังจัดหมวด หรือเมื่อการจัดหมวดไม่สำเร็จ เช่น ระบบตอบกลับผิดรูปแบบหรือไม่มีแท็กที่ใช้งานได้",
+    note: "ไม่รวมรายการเงียบ/ขยะ และตัวเลขอาจลดลงเมื่อการจัดหมวดเสร็จสมบูรณ์",
+  },
+  other: {
+    summary: "จัดหมวดสำเร็จ แต่ไม่ตรงกับหัวข้อที่มีอยู่",
+    detail: "ใช้กับคำถามจริงที่อยู่นอกชุดหัวข้อปัจจุบัน เพื่อช่วยให้ผู้ดูแลเห็นว่าควรเพิ่มหมวดใหม่หรือไม่",
+    note: "หนึ่งบทสนทนาอาจมีแท็ก “อื่น ๆ” ร่วมกับหัวข้ออื่น แต่ช่องนี้นับบทสนทนานั้นเพียงหนึ่งครั้ง",
+  },
+  noise: {
+    summary: "พบเสียงหรือการโต้ตอบ แต่ไม่พบสัญญาณคำถามจริง",
+    detail: "ตัวอย่างเช่น เสียงรบกวน คนเดินผ่าน เสียงที่ระบบฟังไม่เข้าใจ หรือมีเพียงการทักทาย/คุยเล่นโดยไม่มีการค้นข้อมูลและไม่มีคำถามนอกขอบเขต",
+    note: "ไม่นับรวมในจำนวนบทสนทนา กราฟแนวโน้มรายวัน และสถิติหัวข้อ",
+  },
+};
 
 // unclassified/other ต้องเป็นตัวเลขที่เห็นง่าย (ผู้ว่าจ้างใช้ดูว่า enum ครอบพอไหม/classifier
 // ทำงานปกติไหม) — ให้ขนาดตัวเลขเท่ากับการ์ดหลัก ไม่ใช่ตัวเล็กจิ๋วแบบรายละเอียดรอง
@@ -30,14 +56,14 @@ export function ConversationStatCards({ stats, prevStats }: ConversationStatCard
         value={stats.unclassified_count}
         prevValue={prevStats?.unclassified_count}
         invertDelta
-        hint="classify ยังไม่จบ/ล้มเหลว หรือไม่มีสัญญาณให้จัดหมวดเลย"
+        explanation={STAT_EXPLANATIONS.unclassified}
       />
       <StatCard
         icon={<Tags size={15} />}
         label="อื่น ๆ"
         value={stats.other_count}
         prevValue={prevStats?.other_count}
-        hint="จัดหมวดสำเร็จ แต่ไม่ตรงกับหัวข้อที่มีอยู่ — enum อาจต้องเพิ่ม"
+        explanation={STAT_EXPLANATIONS.other}
       />
       <StatCard
         icon={<VolumeX size={15} />}
@@ -45,7 +71,7 @@ export function ConversationStatCards({ stats, prevStats }: ConversationStatCard
         value={stats.noise_count}
         prevValue={prevStats?.noise_count}
         invertDelta
-        hint="ไม่นับรวมในจำนวนบทสนทนา"
+        explanation={STAT_EXPLANATIONS.noise}
       />
     </div>
   );
@@ -56,7 +82,7 @@ function StatCard({
   label,
   value,
   prevValue,
-  hint,
+  explanation,
   emphasis = false,
   invertDelta = false,
 }: {
@@ -64,7 +90,7 @@ function StatCard({
   label: string;
   value: number;
   prevValue?: number;
-  hint?: string;
+  explanation?: StatExplanation;
   emphasis?: boolean;
   // เลขนี้ "น้อยลง = ดีขึ้น" ไหม (unclassified/noise ยิ่งน้อยยิ่งดี) — สลับสีขึ้น/ลงให้ตรงความหมายจริง
   // แทนที่จะยึดกฎ "ขึ้น=เขียวเสมอ" แบบตายตัวซึ่งจะหลอกตาให้ unclassified พุ่งขึ้นดูเหมือนเป็นเรื่องดี
@@ -92,9 +118,10 @@ function StatCard({
       </span>
 
       <div className="flex flex-col gap-1">
-        <span className="text-gray-500" style={{ fontSize: "0.78rem", fontWeight: 500 }} title={hint}>
-          {label}
-        </span>
+        <div className="flex items-center gap-1.5 text-gray-500" style={{ fontSize: "0.78rem", fontWeight: 500 }}>
+          <span>{label}</span>
+          {explanation && <StatInfo label={label} explanation={explanation} />}
+        </div>
         <p
           className="text-gray-900"
           style={{
@@ -118,5 +145,52 @@ function StatCard({
         </span>
       )}
     </div>
+  );
+}
+
+function StatInfo({ label, explanation }: { label: string; explanation: StatExplanation }) {
+  const [open, setOpen] = useState(false);
+  const contentId = useId();
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor className="inline-flex">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex size-5 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2"
+              aria-label={`ดูคำอธิบาย ${label}`}
+              aria-expanded={open}
+              aria-controls={contentId}
+              aria-haspopup="dialog"
+              onClick={() => setOpen((current) => !current)}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== "mouse") return;
+                setOpen(false);
+                event.currentTarget.blur();
+              }}
+            >
+              <Info size={13} aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={6} className="max-w-64 text-center leading-relaxed">
+            {explanation.summary}
+            <span className="mt-1 block text-[10px] opacity-70">คลิกเพื่อดูรายละเอียด</span>
+          </TooltipContent>
+        </Tooltip>
+      </PopoverAnchor>
+
+      <PopoverContent id={contentId} align="start" sideOffset={7} className="w-80 max-w-[calc(100vw-2rem)] p-0">
+        <div className="border-b border-gray-100 px-4 py-3">
+          <p className="text-sm font-semibold text-gray-900">{label}</p>
+          <p className="mt-1 text-xs font-medium text-gray-600">{explanation.summary}</p>
+        </div>
+        <div className="space-y-2 px-4 py-3 text-xs leading-relaxed text-gray-600">
+          <p>{explanation.detail}</p>
+          <p className="rounded-md bg-gray-50 px-3 py-2 text-gray-500">{explanation.note}</p>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
