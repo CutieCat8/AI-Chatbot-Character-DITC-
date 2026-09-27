@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { BarChart3, FileDown } from "lucide-react";
+import { BarChart3, FileText } from "lucide-react";
+import { useNavigate } from "react-router";
 import { getConversationStats, type ConversationStatsOut } from "../../lib/api";
 import { DateRangeControl, defaultDateRange } from "../components/stats/DateRangeControl";
 import { ConversationStatCards } from "../components/stats/ConversationStatCards";
@@ -8,7 +9,6 @@ import { TopicDonutCard } from "../components/stats/TopicDonutCard";
 import { ConversationQualityDonut } from "../components/stats/ConversationQualityDonut";
 import { AllTopicsStatsTable } from "../components/stats/AllTopicsStatsTable";
 import { AnswerStatusBars } from "../components/stats/AnswerStatusBars";
-import { exportStatisticsPdf } from "../components/stats/exportStatisticsPdf";
 
 // ช่วงก่อนหน้าที่ "ยาวเท่ากัน" ต่อจากช่วงที่เลือกทันที — ใช้ทำ delta "เทียบช่วงก่อนหน้า" บนการ์ด KPI
 // ไม่ hardcode เป็น "เทียบสัปดาห์ก่อน" เพราะผู้ใช้เลือกช่วงวันที่เองได้ยาวสั้นไม่เท่ากัน คำนวณสด ๆ
@@ -23,6 +23,7 @@ function previousPeriod(start: string, end: string): [string, string] {
 }
 
 export default function StatsPage() {
+  const navigate = useNavigate();
   const [[start, end], setRange] = useState<[string, string]>(defaultDateRange());
   const [stats, setStats] = useState<ConversationStatsOut | null>(null);
   const [prevStats, setPrevStats] = useState<ConversationStatsOut | null>(null);
@@ -84,16 +85,12 @@ export default function StatsPage() {
             <button
               type="button"
               disabled={loading || Boolean(error) || !stats || isEmpty}
-              onClick={() => {
-                if (stats && !exportStatisticsPdf(stats, start, end)) {
-                  window.alert("เบราว์เซอร์บล็อกหน้าต่างรายงาน กรุณาอนุญาต Pop-up แล้วลองอีกครั้ง");
-                }
-              }}
+              onClick={() => navigate(`/dashboard/stats/report?start=${start}&end=${end}`)}
               className="flex items-center gap-1.5 rounded-lg border border-gray-900 bg-gray-900 px-3 py-2 text-white shadow-sm transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-200"
               style={{ fontSize: "0.78rem", fontWeight: 600 }}
             >
-              <FileDown size={14} />
-              ส่งออก PDF
+              <FileText size={14} />
+              ดูรายงาน
             </button>
           </div>
         </div>

@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ListTree } from "lucide-react";
 import type { TopicCountOut } from "../../../lib/api";
-import { OTHER_TOPIC_COLOR, TOPIC_COLORS } from "./chartPalette";
 
 interface AllTopicsStatsTableProps {
   topics: TopicCountOut[];
 }
 
 type SortDir = "desc" | "asc";
+const TOPIC_BAR_COLOR = "#111827";
 
 // ตารางหัวข้อ "ครบทุกหัวข้อ" คู่กับโดนัท "หัวข้อยอดนิยม" ที่ตัดโชว์แค่ top 4 (ดู TopicDonutCard.tsx)
 // — ไว้ตอบคำถามแบบ "ทำไม MMIT/ANI ไม่ขึ้นในโดนัท" ได้ตรง ๆ โดยไม่ต้องไปเปิด DB ดูเอง ข้อมูลมาจาก
@@ -22,12 +22,6 @@ export function AllTopicsStatsTable({ topics }: AllTopicsStatsTableProps) {
   }, [topics, sortDir]);
 
   const total = useMemo(() => topics.reduce((sum, t) => sum + t.count, 0), [topics]);
-  const colorFor = (topic: string) => {
-    if (topic === "other") return OTHER_TOPIC_COLOR;
-    const index = topics.findIndex((item) => item.topic === topic);
-    return TOPIC_COLORS[(index < 0 ? 0 : index) % TOPIC_COLORS.length];
-  };
-
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3.5 transition-all duration-300 ease-out hover:shadow-lg hover:border-gray-200">
       <div className="flex items-center justify-between">
@@ -72,10 +66,8 @@ export function AllTopicsStatsTable({ topics }: AllTopicsStatsTableProps) {
               className="group flex items-center gap-3 -mx-2 px-2 py-1 rounded-lg transition-colors duration-150 hover:bg-gray-50"
             >
               <span
-                className={`shrink-0 truncate transition-colors duration-150 ${
-                  t.topic === "other" ? "" : "text-gray-600 group-hover:text-gray-900"
-                }`}
-                style={{ fontSize: "0.76rem", width: "13rem", color: t.topic === "other" ? OTHER_TOPIC_COLOR : undefined }}
+                className="shrink-0 truncate text-gray-600 transition-colors duration-150 group-hover:text-gray-900"
+                style={{ fontSize: "0.76rem", width: "13rem" }}
                 title={t.label}
               >
                 {t.label}
@@ -83,7 +75,7 @@ export function AllTopicsStatsTable({ topics }: AllTopicsStatsTableProps) {
               <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
                 <div
                   className="h-full transition-all duration-300 ease-out group-hover:brightness-110"
-                  style={{ width: `${(t.count / max) * 100}%`, backgroundColor: colorFor(t.topic) }}
+                  style={{ width: `${(t.count / max) * 100}%`, backgroundColor: TOPIC_BAR_COLOR }}
                 />
               </div>
               <span className="text-gray-400 shrink-0 text-right" style={{ fontSize: "0.72rem", width: "2.75rem" }}>
